@@ -150,7 +150,9 @@ export const evaluateQuestionScore = ({
     const correctCount = uniqueUserAnswers.filter((answer) => correctSet.has(answer)).length;
     const wrongCount = uniqueUserAnswers.filter((answer) => !correctSet.has(answer)).length;
 
-    let marksObtained = -2;
+    // Partial marks scale proportionally to the question's configured marks.
+    const partialUnit = resolvedMarks / 4;
+    let marksObtained = -resolvedNegative;
     let status: EvaluatedQuestionStatus = "incorrect";
 
     if (wrongCount === 0) {
@@ -158,13 +160,13 @@ export const evaluateQuestionScore = ({
         marksObtained = resolvedMarks;
         status = "correct";
       } else if (totalCorrect === 4 && correctCount === 3 && uniqueUserAnswers.length === 3) {
-        marksObtained = 3;
+        marksObtained = partialUnit * 3;
         status = "correct";
       } else if (totalCorrect >= 3 && correctCount === 2 && uniqueUserAnswers.length === 2) {
-        marksObtained = 2;
+        marksObtained = partialUnit * 2;
         status = "correct";
       } else if (totalCorrect >= 2 && correctCount === 1 && uniqueUserAnswers.length === 1) {
-        marksObtained = 1;
+        marksObtained = partialUnit;
         status = "correct";
       }
     }
