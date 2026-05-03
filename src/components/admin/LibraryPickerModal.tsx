@@ -148,7 +148,15 @@ export function LibraryPickerModal({ open, onClose, onSelect, multiSelect = fals
       filtered = filtered.filter(q =>
         q.library_id.toLowerCase().includes(query) ||
         q.question_text?.toLowerCase().includes(query) ||
-        q.topic?.toLowerCase().includes(query)
+        q.topic?.toLowerCase().includes(query) ||
+        (q.tags || []).some(t => t.toLowerCase().includes(query))
+      );
+    }
+
+    if (tagFilter.trim()) {
+      const tags = tagFilter.toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
+      filtered = filtered.filter(q =>
+        tags.every(t => (q.tags || []).some(qt => qt.toLowerCase().includes(t)))
       );
     }
     
