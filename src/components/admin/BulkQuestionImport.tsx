@@ -70,6 +70,9 @@ function mapRowToQuestion(row: Record<string, string>, userId: string) {
     correctAnswer = Number(ca) - 1;
   }
 
+  const tagsRaw = row.tags?.toString().trim() || "";
+  const tags = tagsRaw ? tagsRaw.split(/[,;|]/).map(t => t.trim()).filter(Boolean) : [];
+
   return {
     subject: row.subject?.trim() || "Physics",
     chapter: row.chapter?.trim() || null,
@@ -79,10 +82,11 @@ function mapRowToQuestion(row: Record<string, string>, userId: string) {
     options: options.length > 0 ? options : null,
     correct_answer: correctAnswer,
     marks: Number(row.marks) || 4,
-    negative_marks: Number(row.negative_marks) || 1,
+    negative_marks: row.negative_marks?.toString().trim() === "" || row.negative_marks === undefined ? 1 : Number(row.negative_marks),
     difficulty: row.difficulty?.trim().toLowerCase() || "medium",
     time_seconds: Number(row.time_seconds) || 60,
     solution_text: row.solution_text?.trim() || null,
+    tags,
     created_by: userId,
   };
 }
