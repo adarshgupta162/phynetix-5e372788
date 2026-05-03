@@ -59,6 +59,7 @@ export function LibraryPickerModal({ open, onClose, onSelect, multiSelect = fals
   const [questions, setQuestions] = useState<LibraryQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [tagFilter, setTagFilter] = useState('');
   
   // Hierarchical navigation
   const [viewMode, setViewMode] = useState<ViewMode>('subjects');
