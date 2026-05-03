@@ -65,6 +65,54 @@ export default function DPPEditor() {
   const [activeQ, setActiveQ] = useState(0);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showLibraryPicker, setShowLibraryPicker] = useState(false);
+
+  const importFromLibrary = async (libQuestions: any[]) => {
+    if (!dppId || libQuestions.length === 0) return;
+    const startIdx = questions.length;
+    const idLetters = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+    const inserts = libQuestions.map((lq, i) => {
+      // Convert library option format to dpp format
+      const libOpts = Array.isArray(lq.options) ? lq.options : [];
+      const options = libOpts.map((o: any, oi: number) => ({
+        id: idLetters[oi] || String(oi + 1),
+        text: typeof o === 'string' ? o : (o?.text || ''),
+      }));
+      // Convert correct_answer
+      let correct: any = lq.correct_answer;
+      if (lq.question_type === 'single_choice' && typeof correct === 'number') {
+        correct = idLetters[correct] || 'A';
+      } else if (lq.question_type === 'multiple_choice' && Array.isArray(correct)) {
+        correct = correct.map((idx: number) => idLetters[idx] || 'A');
+      }
+
+      return {
+        dpp_id: dppId,
+        question_number: startIdx + i + 1,
+        question_text: lq.question_text,
+        question_image_url: lq.question_image_url,
+        question_type: lq.question_type,
+        options: options.length ? options : null,
+        correct_answer: correct,
+        marks: lq.marks ?? 4,
+        negative_marks: lq.negative_marks ?? 1,
+        difficulty: lq.difficulty ?? 'medium',
+        solution_text: lq.solution_text,
+        solution_image_url: lq.solution_image_url,
+        order_index: startIdx + i,
+      };
+    });
+
+    const { data, error } = await supabase.from('dpp_questions').insert(inserts as any).select();
+    if (error) {
+      toast({ title: 'Failed to import', description: error.message, variant: 'destructive' });
+    } else if (data) {
+      setQuestions(prev => [...prev, ...(data as DPPQuestion[])]);
+      setActiveQ(startIdx);
+      toast({ title: `Imported ${data.length} questions from library` });
+    }
+  };
 
   useEffect(() => {
     if (dppId) fetchDPP();
