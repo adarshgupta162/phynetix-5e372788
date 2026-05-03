@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, Save, Plus, Trash2, GripVertical, BookOpen,
-  Clock, Eye, EyeOff, Settings2, ImagePlus, Check, X
+  Clock, Eye, EyeOff, Settings2, ImagePlus, Check, X, Library
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import AdminLayout from "@/components/layout/AdminLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useBatches, type Batch } from "@/hooks/useBatches";
+import { LibraryPickerModal } from "@/components/admin/LibraryPickerModal";
 
 interface DPPQuestion {
   id?: string;
