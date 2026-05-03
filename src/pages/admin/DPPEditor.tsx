@@ -582,6 +582,13 @@ export default function DPPEditor() {
           </div>
         </div>
       </div>
+      <LibraryPickerModal
+        open={showLibraryPicker}
+        onClose={() => setShowLibraryPicker(false)}
+        onSelect={(q) => importFromLibrary([q])}
+        multiSelect
+        onMultiSelect={(qs) => importFromLibrary(qs)}
+      />
     </AdminLayout>
   );
 }
