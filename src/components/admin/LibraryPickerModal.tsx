@@ -38,6 +38,7 @@ interface LibraryQuestion {
   time_seconds: number;
   solution_text: string | null;
   solution_image_url: string | null;
+  tags?: string[] | null;
 }
 
 interface LibraryPickerModalProps {
@@ -58,6 +59,7 @@ export function LibraryPickerModal({ open, onClose, onSelect, multiSelect = fals
   const [questions, setQuestions] = useState<LibraryQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [tagFilter, setTagFilter] = useState('');
   
   // Hierarchical navigation
   const [viewMode, setViewMode] = useState<ViewMode>('subjects');
@@ -146,7 +148,15 @@ export function LibraryPickerModal({ open, onClose, onSelect, multiSelect = fals
       filtered = filtered.filter(q =>
         q.library_id.toLowerCase().includes(query) ||
         q.question_text?.toLowerCase().includes(query) ||
-        q.topic?.toLowerCase().includes(query)
+        q.topic?.toLowerCase().includes(query) ||
+        (q.tags || []).some(t => t.toLowerCase().includes(query))
+      );
+    }
+
+    if (tagFilter.trim()) {
+      const tags = tagFilter.toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
+      filtered = filtered.filter(q =>
+        tags.every(t => (q.tags || []).some(qt => qt.toLowerCase().includes(t)))
       );
     }
     
@@ -269,13 +279,21 @@ export function LibraryPickerModal({ open, onClose, onSelect, multiSelect = fals
             </div>
             
             {viewMode === 'questions' && (
-              <div className="relative w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <div className="flex items-center gap-2">
+                <div className="relative w-56">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search questions..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10 h-8"
+                  />
+                </div>
                 <Input
-                  placeholder="Search questions..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 h-8"
+                  placeholder="Tags (comma)"
+                  value={tagFilter}
+                  onChange={(e) => setTagFilter(e.target.value)}
+                  className="h-8 w-40"
                 />
               </div>
             )}
@@ -447,6 +465,14 @@ export function LibraryPickerModal({ open, onClose, onSelect, multiSelect = fals
                                   {q.difficulty}
                                 </span>
                                 <span>+{q.marks}/-{q.negative_marks}</span>
+                                {(q.tags && q.tags.length > 0) && (
+                                  <span className="flex gap-1 flex-wrap ml-1">
+                                    {q.tags.slice(0, 3).map(t => (
+                                      <span key={t} className="px-1.5 py-0.5 rounded bg-primary/15 text-primary text-[10px]">#{t}</span>
+                                    ))}
+                                    {q.tags.length > 3 && <span className="text-[10px]">+{q.tags.length - 3}</span>}
+                                  </span>
+                                )}
                               </div>
                             </motion.div>
                           );

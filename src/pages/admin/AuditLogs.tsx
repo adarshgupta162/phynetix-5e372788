@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { History, Search, Filter, User, FileText, Settings, Shield } from "lucide-react";
+import { History, Search, Filter, User, FileText, Settings, Shield, Undo2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import AdminLayout from "@/components/layout/AdminLayout";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 import { format } from "date-fns";
 
 interface AuditLog {
@@ -39,27 +41,64 @@ const actionColors: Record<string, string> = {
 };
 
 export default function AuditLogs() {
+  const { user } = useAuth();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [profiles, setProfiles] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [filterAction, setFilterAction] = useState<string>("all");
   const [filterEntity, setFilterEntity] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(true);
+  const [revertingId, setRevertingId] = useState<string | null>(null);
+  const [revertedSet, setRevertedSet] = useState<Set<string>>(new Set());
+
+  const computeReverted = (allLogs: AuditLog[]) => {
+    const reverted = new Set<string>();
+    allLogs.forEach(l => {
+      if (l.action === 'bulk_import_revert') {
+        const target = l.new_value?.reverted_log_id || l.new_value?.original_log_id;
+        if (target) reverted.add(target);
+      }
+    });
+    return reverted;
+  };
 
   useEffect(() => {
     fetchLogs();
   }, []);
+
+  const handleRevertImport = async (log: AuditLog) => {
+    if (!user) return;
+    const ids: string[] = log.new_value?.question_ids || [];
+    if (!ids.length) return toast.error("No question IDs in this log");
+    if (!confirm(`Revert this import? ${ids.length} questions will be deleted from the library.`)) return;
+
+    setRevertingId(log.id);
+    const { error } = await supabase.from('phynetix_library').delete().in('id', ids);
+    if (error) {
+      toast.error("Failed to revert: " + error.message);
+    } else {
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        action: 'bulk_import_revert',
+        entity_type: 'phynetix_library',
+        new_value: { count: ids.length, question_ids: ids, reverted_log_id: log.id },
+      } as any);
+      toast.success(`Reverted ${ids.length} questions`);
+      fetchLogs();
+    }
+    setRevertingId(null);
+  };
 
   const fetchLogs = async () => {
     const { data, error } = await supabase
       .from('audit_logs')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(500);
 
     if (!error && data) {
       setLogs(data);
-      // Fetch profiles
+      setRevertedSet(computeReverted(data));
       const userIds = [...new Set(data.map(l => l.user_id))];
       await fetchProfiles(userIds);
     }
@@ -207,8 +246,30 @@ export default function AuditLogs() {
                         )}
                       </div>
                       {log.new_value && (
-                        <div className="mt-2 p-2 bg-muted/50 rounded text-xs font-mono overflow-x-auto">
+                        <div className="mt-2 p-2 bg-muted/50 rounded text-xs font-mono overflow-x-auto max-h-32">
                           {JSON.stringify(log.new_value, null, 2)}
+                        </div>
+                      )}
+                      {log.action === 'bulk_import' && log.new_value?.question_ids?.length > 0 && (
+                        <div className="mt-2">
+                          {revertedSet.has(log.id) ? (
+                            <span className="text-xs text-muted-foreground italic">Already reverted</span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRevertImport(log)}
+                              disabled={revertingId === log.id}
+                              className="gap-1"
+                            >
+                              {revertingId === log.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Undo2 className="w-3 h-3" />
+                              )}
+                              Revert {log.new_value.question_ids.length} questions
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
