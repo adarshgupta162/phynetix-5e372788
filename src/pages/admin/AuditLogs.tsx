@@ -41,16 +41,53 @@ const actionColors: Record<string, string> = {
 };
 
 export default function AuditLogs() {
+  const { user } = useAuth();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [profiles, setProfiles] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [filterAction, setFilterAction] = useState<string>("all");
   const [filterEntity, setFilterEntity] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(true);
+  const [revertingId, setRevertingId] = useState<string | null>(null);
+  const [revertedSet, setRevertedSet] = useState<Set<string>>(new Set());
+
+  const computeReverted = (allLogs: AuditLog[]) => {
+    const reverted = new Set<string>();
+    allLogs.forEach(l => {
+      if (l.action === 'bulk_import_revert') {
+        const target = l.new_value?.reverted_log_id || l.new_value?.original_log_id;
+        if (target) reverted.add(target);
+      }
+    });
+    return reverted;
+  };
 
   useEffect(() => {
     fetchLogs();
   }, []);
+
+  const handleRevertImport = async (log: AuditLog) => {
+    if (!user) return;
+    const ids: string[] = log.new_value?.question_ids || [];
+    if (!ids.length) return toast.error("No question IDs in this log");
+    if (!confirm(`Revert this import? ${ids.length} questions will be deleted from the library.`)) return;
+
+    setRevertingId(log.id);
+    const { error } = await supabase.from('phynetix_library').delete().in('id', ids);
+    if (error) {
+      toast.error("Failed to revert: " + error.message);
+    } else {
+      await supabase.from('audit_logs').insert({
+        user_id: user.id,
+        action: 'bulk_import_revert',
+        entity_type: 'phynetix_library',
+        new_value: { count: ids.length, question_ids: ids, reverted_log_id: log.id },
+      } as any);
+      toast.success(`Reverted ${ids.length} questions`);
+      fetchLogs();
+    }
+    setRevertingId(null);
+  };
 
   const fetchLogs = async () => {
     const { data, error } = await supabase
