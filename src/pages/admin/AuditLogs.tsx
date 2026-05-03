@@ -94,11 +94,11 @@ export default function AuditLogs() {
       .from('audit_logs')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(100);
+      .limit(500);
 
     if (!error && data) {
       setLogs(data);
-      // Fetch profiles
+      setRevertedSet(computeReverted(data));
       const userIds = [...new Set(data.map(l => l.user_id))];
       await fetchProfiles(userIds);
     }
