@@ -246,8 +246,30 @@ export default function AuditLogs() {
                         )}
                       </div>
                       {log.new_value && (
-                        <div className="mt-2 p-2 bg-muted/50 rounded text-xs font-mono overflow-x-auto">
+                        <div className="mt-2 p-2 bg-muted/50 rounded text-xs font-mono overflow-x-auto max-h-32">
                           {JSON.stringify(log.new_value, null, 2)}
+                        </div>
+                      )}
+                      {log.action === 'bulk_import' && log.new_value?.question_ids?.length > 0 && (
+                        <div className="mt-2">
+                          {revertedSet.has(log.id) ? (
+                            <span className="text-xs text-muted-foreground italic">Already reverted</span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleRevertImport(log)}
+                              disabled={revertingId === log.id}
+                              className="gap-1"
+                            >
+                              {revertingId === log.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Undo2 className="w-3 h-3" />
+                              )}
+                              Revert {log.new_value.question_ids.length} questions
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
