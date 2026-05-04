@@ -55,19 +55,28 @@ function mapRowToQuestion(row: Record<string, string>, userId: string) {
     integer: "integer",
   };
 
+  const LETTERS = ["A", "B", "C", "D", "E", "F"];
   const options = [1, 2, 3, 4]
     .map((i) => row[`option_${i}`]?.trim())
     .filter(Boolean)
-    .map((text, i) => ({ label: `(${i + 1})`, text }));
+    .map((text, i) => ({ label: LETTERS[i], text, image_url: null }));
 
   let correctAnswer: any;
   const ca = row.correct_answer?.trim();
   if (qType === "integer") {
     correctAnswer = ca;
-  } else if (qType === "multiple_correct" && ca?.includes(",")) {
-    correctAnswer = ca.split(",").map((v: string) => Number(v.trim()) - 1);
+  } else if (qType === "multiple_correct") {
+    // Accept "1,3" or "A,C"
+    const parts = (ca || "").split(",").map((v) => v.trim()).filter(Boolean);
+    correctAnswer = parts.map((p) => {
+      const n = Number(p);
+      if (!isNaN(n)) return LETTERS[n - 1];
+      return p.toUpperCase();
+    });
   } else {
-    correctAnswer = Number(ca) - 1;
+    // single_correct: accept "1" or "A"
+    const n = Number(ca);
+    correctAnswer = !isNaN(n) ? LETTERS[n - 1] : (ca || "").toUpperCase();
   }
 
   const tagsRaw = row.tags?.toString().trim() || "";
