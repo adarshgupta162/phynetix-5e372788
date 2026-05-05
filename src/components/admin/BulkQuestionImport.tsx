@@ -437,6 +437,7 @@ function RowImageCell({
   );
 }
 
+export default function BulkQuestionImport() {
   const { user } = useAuth();
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [isDragging, setIsDragging] = useState(false);
