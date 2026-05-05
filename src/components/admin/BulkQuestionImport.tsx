@@ -145,6 +145,8 @@ function buildTemplateWorkbook(): XLSX.WorkBook {
     ["time_seconds", "No", "Default 60."],
     ["solution_text", "No", "Plain text or LaTeX."],
     ["tags", "No", "Comma-separated tags, e.g. 'jee2023,formula,trick'"],
+    ["question_image_url", "No", "Direct URL to question image (https://...). Or upload after import via the preview table."],
+    ["solution_image_url", "No", "Direct URL to solution image."],
     [""],
     ["IMPORTANT — chapter mapping"],
     ["Use the dropdown chapter values exactly. Free-typed chapters that don't match the syllabus"],
@@ -191,7 +193,7 @@ function buildTemplateWorkbook(): XLSX.WorkBook {
   XLSX.utils.book_append_sheet(wb, wsE, "Examples");
 
   // ─── Sheet 3: Questions (the sheet users fill) ───────────────────────
-  const blankRow = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
+  const blankRow = EXPECTED_COLUMNS.map(() => "");
   const questionsSheet: (string | number)[][] = [EXPECTED_COLUMNS];
   // Pre-add 200 empty rows so dropdowns are present without users having to extend them.
   for (let i = 0; i < 200; i++) questionsSheet.push([...blankRow]);
