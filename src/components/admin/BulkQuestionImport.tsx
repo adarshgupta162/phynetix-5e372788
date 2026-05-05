@@ -90,6 +90,8 @@ function mapRowToQuestion(row: Record<string, string>, userId: string) {
     chapter: row.chapter?.trim() || null,
     topic: row.topic?.trim() || null,
     question_text: row.question_text?.trim() || null,
+    question_image_url: row.question_image_url?.trim() || null,
+    solution_image_url: row.solution_image_url?.trim() || null,
     question_type: typeMap[qType] || "single_choice",
     options: options.length > 0 ? options : null,
     correct_answer: correctAnswer,
