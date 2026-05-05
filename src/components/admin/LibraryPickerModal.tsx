@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
-  Search, BookOpen, ChevronRight, FolderOpen, ArrowLeft,
-  Plus, Loader2, AlertCircle, Check, CheckSquare, Square
+  Search, BookOpen, Plus, Loader2, Check, CheckSquare, Square, X, Filter
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +19,11 @@ import { LatexRenderer } from "@/components/ui/latex-renderer";
 import { cn } from "@/lib/utils";
 import { getSubjects, getChaptersForSubject } from "@/lib/jeeData";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 interface LibraryQuestion {
   id: string;
@@ -51,24 +55,77 @@ interface LibraryPickerModalProps {
 
 const SUBJECTS = getSubjects();
 
-type ViewMode = 'subjects' | 'chapters' | 'questions';
+interface MultiPickerProps {
+  label: string;
+  options: string[];
+  selected: Set<string>;
+  onToggle: (v: string) => void;
+  onClear: () => void;
+}
+
+function MultiPicker({ label, options, selected, onToggle, onClear }: MultiPickerProps) {
+  const [search, setSearch] = useState("");
+  const filtered = options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-9 gap-1">
+          <Filter className="w-3.5 h-3.5" />
+          {label}
+          {selected.size > 0 && (
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5">{selected.size}</Badge>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-2" align="start">
+        <div className="flex items-center gap-1 mb-2">
+          <Input
+            placeholder={`Search ${label.toLowerCase()}...`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-8"
+          />
+          {selected.size > 0 && (
+            <Button variant="ghost" size="sm" className="h-8 px-2" onClick={onClear}>
+              <X className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+        <ScrollArea className="max-h-64">
+          <div className="space-y-1">
+            {filtered.length === 0 && (
+              <p className="text-xs text-muted-foreground p-2">No options</p>
+            )}
+            {filtered.map((opt) => (
+              <label
+                key={opt}
+                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer text-sm"
+              >
+                <Checkbox checked={selected.has(opt)} onCheckedChange={() => onToggle(opt)} />
+                <span className="truncate flex-1">{opt}</span>
+              </label>
+            ))}
+          </div>
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export function LibraryPickerModal({ open, onClose, onSelect, multiSelect = false, onMultiSelect }: LibraryPickerModalProps) {
   const { toast } = useToast();
-  
+
   const [questions, setQuestions] = useState<LibraryQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [tagFilter, setTagFilter] = useState('');
-  
-  // Hierarchical navigation
-  const [viewMode, setViewMode] = useState<ViewMode>('subjects');
-  const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
-  const [selectedChapter, setSelectedChapter] = useState<string | null>(null);
-  
-  // Single select
+
+  const [subjects, setSubjects] = useState<Set<string>>(new Set());
+  const [chapters, setChapters] = useState<Set<string>>(new Set());
+  const [topics, setTopics] = useState<Set<string>>(new Set());
+  const [difficulty, setDifficulty] = useState<Set<string>>(new Set());
+
   const [selectedQuestion, setSelectedQuestion] = useState<LibraryQuestion | null>(null);
-  // Multi select
   const [selectedQuestions, setSelectedQuestions] = useState<Set<string>>(new Set());
 
   const fetchQuestions = useCallback(async () => {
@@ -92,63 +149,54 @@ export function LibraryPickerModal({ open, onClose, onSelect, multiSelect = fals
   useEffect(() => {
     if (open) {
       fetchQuestions();
-      // Reset state when opening
-      setViewMode('subjects');
-      setSelectedSubject(null);
-      setSelectedChapter(null);
       setSelectedQuestion(null);
       setSelectedQuestions(new Set());
       setSearchQuery('');
+      setTagFilter('');
+      setSubjects(new Set());
+      setChapters(new Set());
+      setTopics(new Set());
+      setDifficulty(new Set());
     }
   }, [open, fetchQuestions]);
 
-  const getSubjectStats = () => {
-    const stats: Record<string, number> = {};
-    SUBJECTS.forEach(s => {
-      stats[s] = questions.filter(q => q.subject === s).length;
+  // Build chapter/topic options driven by current subject filter
+  const chapterOptions = useMemo(() => {
+    const set = new Set<string>();
+    const subjList = subjects.size > 0 ? Array.from(subjects) : SUBJECTS;
+    subjList.forEach(s => getChaptersForSubject(s).forEach(c => set.add(c)));
+    questions.forEach(q => {
+      if (q.chapter && (subjects.size === 0 || subjects.has(q.subject))) set.add(q.chapter);
     });
-    return stats;
-  };
+    return Array.from(set).sort();
+  }, [subjects, questions]);
 
-  const getChapterStats = (subject: string) => {
-    const subjectQuestions = questions.filter(q => q.subject === subject);
-    const stats: Record<string, number> = {};
-    const chapters = getChaptersForSubject(subject);
-    
-    chapters.forEach(c => {
-      stats[c] = subjectQuestions.filter(q => q.chapter === c).length;
+  const topicOptions = useMemo(() => {
+    const set = new Set<string>();
+    questions.forEach(q => {
+      if (!q.topic) return;
+      if (subjects.size > 0 && !subjects.has(q.subject)) return;
+      if (chapters.size > 0 && (!q.chapter || !chapters.has(q.chapter))) return;
+      set.add(q.topic);
     });
-    
-    const unmappedCount = subjectQuestions.filter(q => !q.chapter || !chapters.includes(q.chapter)).length;
-    if (unmappedCount > 0) {
-      stats['__unmapped__'] = unmappedCount;
-    }
-    
-    return stats;
-  };
+    return Array.from(set).sort();
+  }, [questions, subjects, chapters]);
 
-  const getFilteredQuestions = () => {
+  const filteredQuestions = useMemo(() => {
     let filtered = questions;
-    
-    if (selectedSubject) {
-      filtered = filtered.filter(q => q.subject === selectedSubject);
-    }
-    
-    if (selectedChapter) {
-      if (selectedChapter === '__unmapped__') {
-        const chapters = getChaptersForSubject(selectedSubject || '');
-        filtered = filtered.filter(q => !q.chapter || !chapters.includes(q.chapter));
-      } else {
-        filtered = filtered.filter(q => q.chapter === selectedChapter);
-      }
-    }
-    
-    if (searchQuery) {
+
+    if (subjects.size > 0) filtered = filtered.filter(q => subjects.has(q.subject));
+    if (chapters.size > 0) filtered = filtered.filter(q => q.chapter && chapters.has(q.chapter));
+    if (topics.size > 0) filtered = filtered.filter(q => q.topic && topics.has(q.topic));
+    if (difficulty.size > 0) filtered = filtered.filter(q => difficulty.has(q.difficulty));
+
+    if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(q =>
         q.library_id.toLowerCase().includes(query) ||
         q.question_text?.toLowerCase().includes(query) ||
         q.topic?.toLowerCase().includes(query) ||
+        q.chapter?.toLowerCase().includes(query) ||
         (q.tags || []).some(t => t.toLowerCase().includes(query))
       );
     }
@@ -159,40 +207,21 @@ export function LibraryPickerModal({ open, onClose, onSelect, multiSelect = fals
         tags.every(t => (q.tags || []).some(qt => qt.toLowerCase().includes(t)))
       );
     }
-    
+
     return filtered;
-  };
+  }, [questions, subjects, chapters, topics, difficulty, searchQuery, tagFilter]);
 
-  const handleSubjectClick = (subject: string) => {
-    setSelectedSubject(subject);
-    setSelectedChapter(null);
-    setViewMode('chapters');
-  };
-
-  const handleChapterClick = (chapter: string) => {
-    setSelectedChapter(chapter);
-    setViewMode('questions');
-  };
-
-  const handleBack = () => {
-    if (viewMode === 'questions') {
-      setSelectedChapter(null);
-      setViewMode('chapters');
-    } else if (viewMode === 'chapters') {
-      setSelectedSubject(null);
-      setViewMode('subjects');
-    }
+  const toggleSet = (set: Set<string>, val: string, setter: (s: Set<string>) => void) => {
+    const next = new Set(set);
+    next.has(val) ? next.delete(val) : next.add(val);
+    setter(next);
   };
 
   const toggleQuestionSelection = (question: LibraryQuestion) => {
     if (multiSelect) {
       setSelectedQuestions(prev => {
         const next = new Set(prev);
-        if (next.has(question.id)) {
-          next.delete(question.id);
-        } else {
-          next.add(question.id);
-        }
+        next.has(question.id) ? next.delete(question.id) : next.add(question.id);
         return next;
       });
     } else {
@@ -201,21 +230,13 @@ export function LibraryPickerModal({ open, onClose, onSelect, multiSelect = fals
   };
 
   const toggleSelectAll = () => {
-    const filtered = getFilteredQuestions();
-    const allSelected = filtered.every(q => selectedQuestions.has(q.id));
-    if (allSelected) {
-      setSelectedQuestions(prev => {
-        const next = new Set(prev);
-        filtered.forEach(q => next.delete(q.id));
-        return next;
-      });
-    } else {
-      setSelectedQuestions(prev => {
-        const next = new Set(prev);
-        filtered.forEach(q => next.add(q.id));
-        return next;
-      });
-    }
+    const allSelected = filteredQuestions.length > 0 && filteredQuestions.every(q => selectedQuestions.has(q.id));
+    setSelectedQuestions(prev => {
+      const next = new Set(prev);
+      if (allSelected) filteredQuestions.forEach(q => next.delete(q.id));
+      else filteredQuestions.forEach(q => next.add(q.id));
+      return next;
+    });
   };
 
   const handleConfirmSelect = () => {
@@ -231,257 +252,214 @@ export function LibraryPickerModal({ open, onClose, onSelect, multiSelect = fals
     }
   };
 
-  const subjectStats = getSubjectStats();
-  const chapterStats = selectedSubject ? getChapterStats(selectedSubject) : {};
-  const filteredQuestions = getFilteredQuestions();
+  const clearAllFilters = () => {
+    setSubjects(new Set());
+    setChapters(new Set());
+    setTopics(new Set());
+    setDifficulty(new Set());
+    setSearchQuery('');
+    setTagFilter('');
+  };
+
+  const activeFilterCount = subjects.size + chapters.size + topics.size + difficulty.size + (searchQuery ? 1 : 0) + (tagFilter ? 1 : 0);
   const allFilteredSelected = filteredQuestions.length > 0 && filteredQuestions.every(q => selectedQuestions.has(q.id));
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0">
+      <DialogContent className="max-w-7xl w-[96vw] h-[92vh] flex flex-col p-0">
         <DialogHeader className="px-6 py-4 border-b shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-primary" />
             <span>Import from PhyNetix Library</span>
-            {selectedSubject && (
-              <>
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                <span className="text-primary">{selectedSubject}</span>
-              </>
-            )}
-            {selectedChapter && (
-              <>
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                <span className="text-primary">
-                  {selectedChapter === '__unmapped__' ? 'Unmapped' : selectedChapter}
-                </span>
-              </>
-            )}
+            <Badge variant="outline" className="ml-2">
+              {filteredQuestions.length} of {questions.length}
+            </Badge>
           </DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Navigation bar */}
-          <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
-            <div className="flex items-center gap-2">
-              {viewMode !== 'subjects' && (
-                <Button variant="ghost" size="sm" onClick={handleBack}>
-                  <ArrowLeft className="w-4 h-4 mr-1" />
-                  Back
+          {/* Filter bar */}
+          <div className="px-4 py-3 border-b bg-muted/30 space-y-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search question text, ID, chapter, topic, tags..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 h-9"
+                />
+              </div>
+              <Input
+                placeholder="Tags (comma-separated)"
+                value={tagFilter}
+                onChange={(e) => setTagFilter(e.target.value)}
+                className="h-9 w-56"
+              />
+              <MultiPicker
+                label="Subject"
+                options={SUBJECTS}
+                selected={subjects}
+                onToggle={(v) => { toggleSet(subjects, v, setSubjects); }}
+                onClear={() => setSubjects(new Set())}
+              />
+              <MultiPicker
+                label="Chapter"
+                options={chapterOptions}
+                selected={chapters}
+                onToggle={(v) => toggleSet(chapters, v, setChapters)}
+                onClear={() => setChapters(new Set())}
+              />
+              <MultiPicker
+                label="Topic"
+                options={topicOptions}
+                selected={topics}
+                onToggle={(v) => toggleSet(topics, v, setTopics)}
+                onClear={() => setTopics(new Set())}
+              />
+              <MultiPicker
+                label="Difficulty"
+                options={['easy', 'medium', 'hard']}
+                selected={difficulty}
+                onToggle={(v) => toggleSet(difficulty, v, setDifficulty)}
+                onClear={() => setDifficulty(new Set())}
+              />
+              {activeFilterCount > 0 && (
+                <Button variant="ghost" size="sm" onClick={clearAllFilters} className="h-9 gap-1">
+                  <X className="w-3.5 h-3.5" /> Clear ({activeFilterCount})
                 </Button>
               )}
-              {multiSelect && viewMode === 'questions' && (
-                <Button variant="ghost" size="sm" onClick={toggleSelectAll} className="gap-1">
+              {multiSelect && (
+                <Button variant="outline" size="sm" onClick={toggleSelectAll} className="h-9 gap-1 ml-auto">
                   {allFilteredSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                   {allFilteredSelected ? 'Deselect All' : 'Select All'}
                 </Button>
               )}
             </div>
-            
-            {viewMode === 'questions' && (
-              <div className="flex items-center gap-2">
-                <div className="relative w-56">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search questions..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 h-8"
-                  />
-                </div>
-                <Input
-                  placeholder="Tags (comma)"
-                  value={tagFilter}
-                  onChange={(e) => setTagFilter(e.target.value)}
-                  className="h-8 w-40"
-                />
+
+            {/* Active filter chips */}
+            {(subjects.size + chapters.size + topics.size + difficulty.size) > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {[...subjects].map(s => (
+                  <Badge key={`s-${s}`} variant="secondary" className="gap-1">
+                    {s}
+                    <X className="w-3 h-3 cursor-pointer" onClick={() => toggleSet(subjects, s, setSubjects)} />
+                  </Badge>
+                ))}
+                {[...chapters].map(c => (
+                  <Badge key={`c-${c}`} variant="secondary" className="gap-1">
+                    {c}
+                    <X className="w-3 h-3 cursor-pointer" onClick={() => toggleSet(chapters, c, setChapters)} />
+                  </Badge>
+                ))}
+                {[...topics].map(t => (
+                  <Badge key={`t-${t}`} variant="secondary" className="gap-1">
+                    {t}
+                    <X className="w-3 h-3 cursor-pointer" onClick={() => toggleSet(topics, t, setTopics)} />
+                  </Badge>
+                ))}
+                {[...difficulty].map(d => (
+                  <Badge key={`d-${d}`} variant="secondary" className="gap-1 capitalize">
+                    {d}
+                    <X className="w-3 h-3 cursor-pointer" onClick={() => toggleSet(difficulty, d, setDifficulty)} />
+                  </Badge>
+                ))}
               </div>
             )}
           </div>
 
-          {/* Content */}
+          {/* Questions Grid */}
           <ScrollArea className="flex-1 p-4">
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
               </div>
+            ) : filteredQuestions.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No questions match your filters</p>
+                {activeFilterCount > 0 && (
+                  <Button variant="link" onClick={clearAllFilters}>Clear filters</Button>
+                )}
+              </div>
             ) : (
-              <>
-                {/* Subjects View */}
-                {viewMode === 'subjects' && (
-                  <div className="grid gap-4 md:grid-cols-3">
-                    {SUBJECTS.map((subject) => (
-                      <motion.div
-                        key={subject}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        onClick={() => handleSubjectClick(subject)}
-                        className="bg-card border border-border rounded-xl p-5 hover:border-primary/50 cursor-pointer transition-all group"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={cn(
-                              "w-10 h-10 rounded-lg flex items-center justify-center",
-                              subject === 'Physics' && "bg-blue-500/20",
-                              subject === 'Chemistry' && "bg-green-500/20",
-                              subject === 'Mathematics' && "bg-orange-500/20"
-                            )}>
-                              <BookOpen className={cn(
-                                "w-5 h-5",
-                                subject === 'Physics' && "text-blue-500",
-                                subject === 'Chemistry' && "text-green-500",
-                                subject === 'Mathematics' && "text-orange-500"
-                              )} />
-                            </div>
-                            <div>
-                              <h3 className="font-semibold">{subject}</h3>
-                              <p className="text-sm text-muted-foreground">
-                                {subjectStats[subject]} questions
-                              </p>
-                            </div>
-                          </div>
-                          <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary" />
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {filteredQuestions.map((q) => {
+                  const isSelected = multiSelect ? selectedQuestions.has(q.id) : selectedQuestion?.id === q.id;
+                  return (
+                    <motion.div
+                      key={q.id}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      onClick={() => toggleQuestionSelection(q)}
+                      className={cn(
+                        "bg-card border rounded-lg p-3 cursor-pointer transition-all",
+                        isSelected
+                          ? "border-primary ring-2 ring-primary/30"
+                          : "border-border hover:border-primary/50"
+                      )}
+                    >
+                      <div className="flex items-start justify-between mb-2 gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {multiSelect && (
+                            <Checkbox checked={isSelected} className="pointer-events-none" />
+                          )}
+                          <span className="px-1.5 py-0.5 bg-primary/10 text-primary rounded text-xs font-mono">
+                            {q.library_id}
+                          </span>
+                          <Badge variant="outline" className="text-xs">
+                            {q.question_type.replace('_', ' ')}
+                          </Badge>
                         </div>
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Chapters View */}
-                {viewMode === 'chapters' && selectedSubject && (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {chapterStats['__unmapped__'] > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        onClick={() => handleChapterClick('__unmapped__')}
-                        className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 hover:border-yellow-500/50 cursor-pointer transition-all col-span-full"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <AlertCircle className="w-4 h-4 text-yellow-500" />
-                            <span className="font-medium">Unmapped Questions</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant="secondary">{chapterStats['__unmapped__']}</Badge>
-                            <ChevronRight className="w-4 h-4" />
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-
-                    {Object.entries(chapterStats)
-                      .filter(([chapter]) => chapter !== '__unmapped__')
-                      .map(([chapter, count]) => (
-                        <motion.div
-                          key={chapter}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          onClick={() => handleChapterClick(chapter)}
-                          className="bg-card border border-border rounded-lg p-3 hover:border-primary/50 cursor-pointer transition-all group"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <FolderOpen className="w-4 h-4 text-primary shrink-0" />
-                              <span className="font-medium truncate">{chapter}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline">{count}</Badge>
-                              <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary" />
-                            </div>
-                          </div>
-                        </motion.div>
-                      ))}
-                  </div>
-                )}
-
-                {/* Questions View */}
-                {viewMode === 'questions' && (
-                  <>
-                    {filteredQuestions.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground">
-                        <BookOpen className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                        <p>No questions found</p>
+                        {isSelected && !multiSelect && (
+                          <Check className="w-5 h-5 text-primary shrink-0" />
+                        )}
                       </div>
-                    ) : (
-                      <div className="grid gap-3 md:grid-cols-2">
-                        {filteredQuestions.map((q) => {
-                          const isSelected = multiSelect ? selectedQuestions.has(q.id) : selectedQuestion?.id === q.id;
-                          return (
-                            <motion.div
-                              key={q.id}
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              onClick={() => toggleQuestionSelection(q)}
-                              className={cn(
-                                "bg-card border rounded-lg p-3 cursor-pointer transition-all",
-                                isSelected
-                                  ? "border-primary ring-2 ring-primary/20"
-                                  : "border-border hover:border-primary/50"
-                              )}
-                            >
-                              <div className="flex items-start justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  {multiSelect && (
-                                    <Checkbox checked={isSelected} className="pointer-events-none" />
-                                  )}
-                                  <span className="px-2 py-0.5 bg-primary/10 text-primary rounded text-xs font-mono">
-                                    {q.library_id}
-                                  </span>
-                                  <Badge variant="outline" className="text-xs">
-                                    {q.question_type.replace('_', ' ')}
-                                  </Badge>
-                                </div>
-                                {isSelected && !multiSelect && (
-                                  <Check className="w-5 h-5 text-primary" />
-                                )}
-                              </div>
 
-                              <div className="mb-2">
-                                {q.question_image_url && (
-                                  <img
-                                    src={q.question_image_url}
-                                    alt="Question"
-                                    className="w-full h-16 object-cover rounded mb-1 bg-muted"
-                                    onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
-                                  />
-                                )}
-                                <p className="text-sm line-clamp-2">
-                                  {q.question_text ? (
-                                    <LatexRenderer content={q.question_text} />
-                                  ) : (
-                                    <span className="text-muted-foreground italic">Image only</span>
-                                  )}
-                                </p>
-                              </div>
-
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <span className={cn(
-                                  "px-1.5 py-0.5 rounded capitalize",
-                                  q.difficulty === 'easy' && "bg-green-500/20 text-green-600",
-                                  q.difficulty === 'medium' && "bg-yellow-500/20 text-yellow-600",
-                                  q.difficulty === 'hard' && "bg-red-500/20 text-red-600"
-                                )}>
-                                  {q.difficulty}
-                                </span>
-                                <span>+{q.marks}/-{q.negative_marks}</span>
-                                {(q.tags && q.tags.length > 0) && (
-                                  <span className="flex gap-1 flex-wrap ml-1">
-                                    {q.tags.slice(0, 3).map(t => (
-                                      <span key={t} className="px-1.5 py-0.5 rounded bg-primary/15 text-primary text-[10px]">#{t}</span>
-                                    ))}
-                                    {q.tags.length > 3 && <span className="text-[10px]">+{q.tags.length - 3}</span>}
-                                  </span>
-                                )}
-                              </div>
-                            </motion.div>
-                          );
-                        })}
+                      <div className="mb-2">
+                        {q.question_image_url && (
+                          <img
+                            src={q.question_image_url}
+                            alt="Question"
+                            className="w-full h-16 object-cover rounded mb-1 bg-muted"
+                            onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
+                          />
+                        )}
+                        <p className="text-sm line-clamp-3">
+                          {q.question_text ? (
+                            <LatexRenderer content={q.question_text} />
+                          ) : (
+                            <span className="text-muted-foreground italic">Image only</span>
+                          )}
+                        </p>
                       </div>
-                    )}
-                  </>
-                )}
-              </>
+
+                      <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                        <span className="px-1.5 py-0.5 rounded bg-muted">{q.subject}</span>
+                        {q.chapter && <span className="px-1.5 py-0.5 rounded bg-muted truncate max-w-[120px]">{q.chapter}</span>}
+                        {q.topic && <span className="px-1.5 py-0.5 rounded bg-muted/60 truncate max-w-[100px]">{q.topic}</span>}
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded capitalize",
+                          q.difficulty === 'easy' && "bg-green-500/20 text-green-600",
+                          q.difficulty === 'medium' && "bg-yellow-500/20 text-yellow-600",
+                          q.difficulty === 'hard' && "bg-red-500/20 text-red-600"
+                        )}>
+                          {q.difficulty}
+                        </span>
+                        <span>+{q.marks}/-{q.negative_marks}</span>
+                        {(q.tags && q.tags.length > 0) && (
+                          <span className="flex gap-1 flex-wrap w-full mt-1">
+                            {q.tags.slice(0, 4).map(t => (
+                              <span key={t} className="px-1.5 py-0.5 rounded bg-primary/15 text-primary text-[10px]">#{t}</span>
+                            ))}
+                            {q.tags.length > 4 && <span className="text-[10px]">+{q.tags.length - 4}</span>}
+                          </span>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
             )}
           </ScrollArea>
         </div>
