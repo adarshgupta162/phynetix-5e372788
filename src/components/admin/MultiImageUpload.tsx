@@ -38,15 +38,15 @@ export function MultiImageUpload({
 
     setUploading(true);
     try {
-      const fileName = `question-images/${Date.now()}-${file.name}`;
+      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2,8)}-${file.name.replace(/\s+/g,"_")}`;
       const { data, error } = await supabase.storage
-        .from("test-pdfs")
-        .upload(fileName, file, { cacheControl: "3600", upsert: false });
+        .from("question-images")
+        .upload(fileName, file, { cacheControl: "3600", upsert: false, contentType: file.type });
 
       if (error) throw error;
 
       const { data: urlData } = supabase.storage
-        .from("test-pdfs")
+        .from("question-images")
         .getPublicUrl(data.path);
 
       onChange([...value, urlData.publicUrl]);
