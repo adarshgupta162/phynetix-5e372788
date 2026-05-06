@@ -26,15 +26,15 @@ async function uploadImageFile(file: File): Promise<string | null> {
     toast.error("Max image size is 5 MB");
     return null;
   }
-  const path = `question-images/${Date.now()}-${file.name.replace(/\s+/g, "_")}`;
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${file.name.replace(/\s+/g, "_")}`;
   const { data, error } = await supabase.storage
-    .from("test-pdfs")
-    .upload(path, file, { cacheControl: "3600", upsert: false });
+    .from("question-images")
+    .upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type });
   if (error) {
     toast.error(error.message);
     return null;
   }
-  const { data: pub } = supabase.storage.from("test-pdfs").getPublicUrl(data.path);
+  const { data: pub } = supabase.storage.from("question-images").getPublicUrl(data.path);
   toast.success("Image uploaded");
   return pub.publicUrl;
 }
