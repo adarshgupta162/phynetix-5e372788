@@ -361,12 +361,12 @@ function RowImageCell({
     if (!file.type.startsWith("image/")) return toast.error("Not an image");
     if (file.size > 5 * 1024 * 1024) return toast.error("Max 5 MB");
     setUploading(true);
-    const path = `question-images/${Date.now()}-${file.name.replace(/\s+/g, "_")}`;
-    const { data, error } = await supabase.storage.from("test-pdfs").upload(path, file, { upsert: false });
+    const path = `${Date.now()}-${Math.random().toString(36).slice(2,8)}-${file.name.replace(/\s+/g, "_")}`;
+    const { data, error } = await supabase.storage.from("question-images").upload(path, file, { upsert: false, contentType: file.type });
     if (error) {
       toast.error(error.message);
     } else {
-      const { data: pub } = supabase.storage.from("test-pdfs").getPublicUrl(data.path);
+      const { data: pub } = supabase.storage.from("question-images").getPublicUrl(data.path);
       onChange(pub.publicUrl);
       toast.success(`${label} uploaded`);
     }
