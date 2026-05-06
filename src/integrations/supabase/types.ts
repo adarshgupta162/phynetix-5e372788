@@ -153,8 +153,10 @@ export type Database = {
           enrollment_deadline: string | null
           features: Json | null
           id: string
+          institution_id: string | null
           is_active: boolean | null
           is_featured: boolean | null
+          join_code: string | null
           max_students: number | null
           name: string
           original_price: number | null
@@ -175,8 +177,10 @@ export type Database = {
           enrollment_deadline?: string | null
           features?: Json | null
           id?: string
+          institution_id?: string | null
           is_active?: boolean | null
           is_featured?: boolean | null
+          join_code?: string | null
           max_students?: number | null
           name: string
           original_price?: number | null
@@ -197,8 +201,10 @@ export type Database = {
           enrollment_deadline?: string | null
           features?: Json | null
           id?: string
+          institution_id?: string | null
           is_active?: boolean | null
           is_featured?: boolean | null
+          join_code?: string | null
           max_students?: number | null
           name?: string
           original_price?: number | null
@@ -209,7 +215,15 @@ export type Database = {
           thumbnail_url?: string | null
           updated_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "batches_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       chapters: {
         Row: {
@@ -597,6 +611,80 @@ export type Database = {
           },
         ]
       }
+      institution_members: {
+        Row: {
+          created_at: string | null
+          id: string
+          institution_id: string
+          invited_by: string | null
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          institution_id: string
+          invited_by?: string | null
+          role?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          institution_id?: string
+          invited_by?: string | null
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "institution_members_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      institutions: {
+        Row: {
+          code: string
+          contact_email: string | null
+          contact_phone: string | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          slug: string
+          updated_at: string | null
+        }
+        Insert: {
+          code?: string
+          contact_email?: string | null
+          contact_phone?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          slug: string
+          updated_at?: string | null
+        }
+        Update: {
+          code?: string
+          contact_email?: string | null
+          contact_phone?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          slug?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       notifications: {
         Row: {
           created_at: string | null
@@ -709,6 +797,7 @@ export type Database = {
           created_by: string | null
           difficulty: string | null
           id: string
+          institution_id: string | null
           is_active: boolean | null
           library_id: string
           marks: number | null
@@ -727,6 +816,7 @@ export type Database = {
           topic: string | null
           updated_at: string
           usage_count: number | null
+          visibility: string
         }
         Insert: {
           chapter?: string | null
@@ -735,6 +825,7 @@ export type Database = {
           created_by?: string | null
           difficulty?: string | null
           id?: string
+          institution_id?: string | null
           is_active?: boolean | null
           library_id?: string
           marks?: number | null
@@ -753,6 +844,7 @@ export type Database = {
           topic?: string | null
           updated_at?: string
           usage_count?: number | null
+          visibility?: string
         }
         Update: {
           chapter?: string | null
@@ -761,6 +853,7 @@ export type Database = {
           created_by?: string | null
           difficulty?: string | null
           id?: string
+          institution_id?: string | null
           is_active?: boolean | null
           library_id?: string
           marks?: number | null
@@ -779,8 +872,17 @@ export type Database = {
           topic?: string | null
           updated_at?: string
           usage_count?: number | null
+          visibility?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "phynetix_library_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       platform_settings: {
         Row: {
@@ -1648,6 +1750,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_user_institution_id: { Args: { _user_id: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1663,7 +1766,13 @@ export type Database = {
         Args: { _batch_id: string; _user_id: string }
         Returns: boolean
       }
+      is_institution_admin: {
+        Args: { _institution_id: string; _user_id: string }
+        Returns: boolean
+      }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      is_super_admin: { Args: { _user_id: string }; Returns: boolean }
+      join_batch_with_code: { Args: { _code: string }; Returns: Json }
       user_completed_test: {
         Args: { _test_id: string; _user_id: string }
         Returns: boolean
