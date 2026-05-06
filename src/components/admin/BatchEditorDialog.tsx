@@ -200,6 +200,22 @@ export function BatchEditorDialog({ open, onOpenChange, batch }: BatchEditorDial
                 )}
               </div>
 
+              {batch?.join_code && (
+                <div className="rounded-md border border-primary/30 bg-primary/5 p-3 flex items-center justify-between">
+                  <div>
+                    <Label className="text-xs">Join Code (share with students)</Label>
+                    <div className="font-mono text-lg font-bold tracking-wider">{batch.join_code}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { navigator.clipboard.writeText(batch.join_code); }}
+                    className="text-xs px-3 py-1 border rounded hover:bg-background"
+                  >
+                    Copy
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="category">Category *</Label>
