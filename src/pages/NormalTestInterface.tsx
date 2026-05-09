@@ -179,8 +179,6 @@ export default function NormalTestInterface() {
 
   // tooltip hover state
   const [hoveredSectionTooltip, setHoveredSectionTooltip] = useState<string | null>(null);
-  const [hoveredSectionInfo, setHoveredSectionInfo] = useState<string | null>(null);
-  const [showTestTooltip, setShowTestTooltip]   = useState(false);
 
   /* ════ ALL API/BACKEND LOGIC — 100% IDENTICAL TO ORIGINAL ════ */
 
@@ -861,34 +859,6 @@ export default function NormalTestInterface() {
           <div style={{ background: C.sectionTabBg, borderBottom: "1px solid #ccc", padding: "4px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: "bold", color: "#111" }}>{testName}</span>
-              {sections.map(sec => (
-                <div
-                  key={`section-info-${sec.id}`}
-                  style={{ position: "relative" }}
-                  onMouseEnter={() => setHoveredSectionInfo(sec.id)}
-                  onMouseLeave={() => setHoveredSectionInfo(null)}
-                >
-                  <span style={{ width: 16, height: 16, background: "#6b7280", borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, fontWeight: "bold", cursor: "pointer", flexShrink: 0 }}>i</span>
-                  {hoveredSectionInfo === sec.id && (
-                    <div style={{
-                      position: "absolute", top: "115%", left: "50%", transform: "translateX(-50%)",
-                      background: "#fff", border: "1px solid #bbb", borderRadius: 4, padding: "8px 10px",
-                      boxShadow: "0 4px 16px rgba(0,0,0,.18)", zIndex: 9999, minWidth: 180,
-                      fontFamily: "Arial,sans-serif", fontSize: 12, color: "#222", whiteSpace: "nowrap",
-                    }}>
-                      <div style={{ fontWeight: "bold", marginBottom: 2 }}>{sec.name}</div>
-                      <div>{sec.questions.length} Questions • {(sec.section_type || "single_choice").replace(/_/g, " ")}</div>
-                    </div>
-                  )}
-                </div>
-              ))}
-              {/* i button for full test tooltip */}
-              <div style={{ position: "relative" }}
-                onMouseEnter={() => setShowTestTooltip(true)}
-                onMouseLeave={() => setShowTestTooltip(false)}>
-                <span style={{ width: 16, height: 16, background: C.secActive, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, fontWeight: "bold", cursor: "pointer" }}>i</span>
-                <StatusTooltip counts={{ answered: sc.answered, notAnswered: sc.notAnswered, notVisited: sc.notVisited, marked: sc.markedCount, answeredMarked: sc.answeredMarked }} visible={showTestTooltip} />
-              </div>
             </div>
             <span style={{ fontSize: 13, fontWeight: "bold", color: timeLeft < 300 ? "#cc0000" : "#000" }}>
               Time Left : {formatTime(timeLeft)}
@@ -982,7 +952,7 @@ export default function NormalTestInterface() {
                   style={{ padding: "8px 12px", border: "2px solid #888", width: "100%", fontSize: 16, fontFamily: "monospace", textAlign: "center", outline: "none", background: "#ffffff", color: "#000", borderRadius: 6, boxSizing: "border-box" }}
                 />
                 <div style={{ marginTop: 8, background: "#eef3f9", border: "1px solid #d2dce8", borderRadius: 8, padding: 8, width: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 6 }}>
-                  <button type="button" onClick={handleIntegerKeypadBackspace} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", fontWeight: "bold", cursor: "pointer" }}>
+                  <button type="button" onClick={handleIntegerKeypadBackspace} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", fontWeight: "bold", cursor: "pointer", color: "#000" }}>
                     Backspace
                   </button>
                   {[
@@ -993,21 +963,21 @@ export default function NormalTestInterface() {
                   ].map((row, rowIndex) => (
                     <div key={rowIndex} style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6 }}>
                       {row.map((key) => (
-                        <button key={key} type="button" onClick={() => handleIntegerKeypadInsert(key)} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: 600 }}>
+                        <button key={key} type="button" onClick={() => handleIntegerKeypadInsert(key)} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: 600, color: "#000" }}>
                           {key}
                         </button>
                       ))}
                     </div>
                   ))}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6 }}>
-                    <button type="button" onClick={() => moveIntegerCursor("left")} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: 600 }}>
+                    <button type="button" onClick={() => moveIntegerCursor("left")} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: 600, color: "#000" }}>
                       ←
                     </button>
-                    <button type="button" onClick={() => moveIntegerCursor("right")} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: 600 }}>
+                    <button type="button" onClick={() => moveIntegerCursor("right")} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: 600, color: "#000" }}>
                       →
                     </button>
                   </div>
-                  <button type="button" onClick={clearIntegerAnswer} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: "bold" }}>
+                  <button type="button" onClick={clearIntegerAnswer} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: "bold", color: "#000" }}>
                     Clear All
                   </button>
                 </div>
