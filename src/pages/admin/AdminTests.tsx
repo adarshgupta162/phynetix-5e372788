@@ -29,6 +29,7 @@ interface Test {
   is_published: boolean | null;
   created_at: string;
   exam_type: string;
+  proctoring_enabled?: boolean | null;
 }
 
 const TESTS_PER_PAGE = 15;
@@ -221,6 +222,12 @@ export default function AdminTests() {
                   <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
                     {test.description || "No description"}
                   </p>
+                  {test.proctoring_enabled && (
+                    <div className="mb-4 text-xs font-semibold text-emerald-600 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      Live monitoring enabled
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
                     <span className="flex items-center gap-1">

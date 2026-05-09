@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Clock, Flag, ChevronLeft, ChevronRight, AlertCircle,
-  CheckCircle2, XCircle, Loader2, WifiOff
+  CheckCircle2, XCircle, Loader2, WifiOff, Camera, Mic, MonitorPlay
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,7 @@ import { toast } from "@/hooks/use-toast";
 import FullscreenGuard from "@/components/test/FullscreenGuard";
 import AccessibilityToolbar from "@/components/test/AccessibilityToolbar";
 import { LatexRenderer } from "@/components/ui/latex-renderer";
+import { useProctoringSession } from "@/hooks/useProctoringSession";
 
 /* ─── TYPES ─── */
 interface Question {
@@ -182,6 +183,23 @@ export default function NormalTestInterface() {
   const [hoveredSectionTooltip, setHoveredSectionTooltip] = useState<string | null>(null);
   const [unlockDate, setUnlockDate]             = useState<string | null>((location.state as { unlockDate?: string | null } | null)?.unlockDate || null);
   const [showUnlockPopup, setShowUnlockPopup]   = useState(false);
+  const [proctoringEnabled, setProctoringEnabled] = useState(false);
+  const [proctoringProvider, setProctoringProvider] = useState("webrtc");
+  const [requireCamera, setRequireCamera] = useState(false);
+  const [requireMic, setRequireMic] = useState(false);
+  const [requireScreen, setRequireScreen] = useState(false);
+  const [proctoringSetupOpen, setProctoringSetupOpen] = useState(false);
+  const [proctoringStartRequested, setProctoringStartRequested] = useState(false);
+  const [proctoringBlocked, setProctoringBlocked] = useState(false);
+  const [proctoringOptions, setProctoringOptions] = useState({ camera: false, mic: false, screen: false });
+
+  const proctoringRequired = proctoringEnabled && (requireCamera || requireMic || requireScreen);
+  const { state: proctoringState, startSession, endSession, logEvent } = useProctoringSession({
+    testId: testId || null,
+    attemptId,
+    enabled: proctoringEnabled,
+    requirements: { requireCamera, requireMic, requireScreen },
+  });
 
   /* ════ ALL API/BACKEND LOGIC — 100% IDENTICAL TO ORIGINAL ════ */
 
@@ -277,10 +295,7 @@ export default function NormalTestInterface() {
     return `${minutes}m ${seconds}s`;
   };
 
-  const startTest = () => {
-    if (!agreedToTerms) {
-      toast({ title: "Please agree to the terms", description: "You must agree to the test rules before starting.", variant: "destructive" }); return;
-    }
+  const beginTest = () => {
     if (unlockDate && new Date(unlockDate) > new Date()) {
       setShowUnlockPopup(true);
       return;
@@ -289,13 +304,52 @@ export default function NormalTestInterface() {
       const el = document.documentElement;
       (el.requestFullscreen?.() || (el as any).webkitRequestFullscreen?.() || (el as any).mozRequestFullScreen?.() || (el as any).msRequestFullscreen?.())?.catch?.(() => {});
     }
-    setCurrentScreen(4); setLoading(true); initializeTest();
+    setCurrentScreen(4);
+    setLoading(true);
+    initializeTest();
+  };
+
+  const startTest = () => {
+    if (!agreedToTerms) {
+      toast({ title: "Please agree to the terms", description: "You must agree to the test rules before starting.", variant: "destructive" });
+      return;
+    }
+    if (proctoringEnabled && !proctoringStartRequested && proctoringState.status !== "active") {
+      setProctoringSetupOpen(true);
+      return;
+    }
+    beginTest();
+  };
+
+  const handleProctoringContinue = () => {
+    setProctoringSetupOpen(false);
+    setProctoringStartRequested(true);
+    beginTest();
   };
 
   const initializeTest = async () => {
     try {
-      const { data: td } = await supabase.from("tests").select("fullscreen_enabled").eq("id", testId).single();
-      if (td) setFullscreenEnabled(td.fullscreen_enabled ?? true);
+      const { data: td } = await supabase
+        .from("tests")
+        .select("fullscreen_enabled, proctoring_enabled, proctoring_provider, proctoring_require_camera, proctoring_require_mic, proctoring_require_screen")
+        .eq("id", testId)
+        .single();
+      if (td) {
+        setFullscreenEnabled(td.fullscreen_enabled ?? true);
+        setProctoringEnabled(td.proctoring_enabled ?? false);
+        setProctoringProvider(td.proctoring_provider ?? "webrtc");
+        const nextRequireCamera = td.proctoring_require_camera ?? false;
+        const nextRequireMic = td.proctoring_require_mic ?? false;
+        const nextRequireScreen = td.proctoring_require_screen ?? false;
+        setRequireCamera(nextRequireCamera);
+        setRequireMic(nextRequireMic);
+        setRequireScreen(nextRequireScreen);
+        setProctoringOptions({
+          camera: nextRequireCamera,
+          mic: nextRequireMic,
+          screen: nextRequireScreen,
+        });
+      }
       const { data: startData, error: startError } = await supabase.functions.invoke("start-test", { body: { test_id: testId } });
       if (startError || startData?.error) throw new Error(startData?.error || startError?.message || "Failed to start test");
       setAttemptId(startData.attempt_id); setTestName(startData.test_name);
@@ -383,6 +437,41 @@ export default function NormalTestInterface() {
   };
 
   useEffect(() => {
+    if (!proctoringStartRequested || !attemptId || !proctoringEnabled) return;
+    const run = async () => {
+      const ok = await startSession(proctoringOptions);
+      setProctoringStartRequested(false);
+      if (!ok && proctoringRequired) {
+        setProctoringBlocked(true);
+      }
+    };
+    void run();
+  }, [attemptId, proctoringEnabled, proctoringOptions, proctoringRequired, proctoringStartRequested, startSession]);
+
+  useEffect(() => {
+    if (proctoringState.status === "active") {
+      void logEvent("monitoring_started", { provider: proctoringProvider });
+    }
+  }, [logEvent, proctoringProvider, proctoringState.status]);
+
+  useEffect(() => {
+    if (proctoringState.status !== "active") return;
+    const handleBlur = () => void logEvent("window_blur", {});
+    const handleFocus = () => void logEvent("window_focus", {});
+    const handleVisibility = () => {
+      void logEvent("visibility_change", { hidden: document.hidden });
+    };
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [logEvent, proctoringState.status]);
+
+  useEffect(() => {
     if (timeLeft <= 0 || loading || currentScreen !== 4) return;
     const t = setInterval(() => {
       setTimeLeft(p => { if (p <= 1) { clearInterval(t); setTimeExpired(true); return 0; } return p - 1; });
@@ -425,6 +514,21 @@ export default function NormalTestInterface() {
     setDraftQuestionId(currentQuestionId);
     setDraftAnswer(cloneAnswerValue(answers[currentQuestionId]));
   }, [currentQuestionId, answers]);
+
+  useEffect(() => {
+    if (proctoringState.status !== "active" || !currentQuestion) return;
+    void logEvent("question_view", {
+      question_id: currentQuestion.id,
+      order: currentQuestion.order,
+      section_id: activeSection,
+      section_type: currentQuestion.section_type || currentQuestion.question_type,
+    });
+  }, [activeSection, currentQuestion, logEvent, proctoringState.status]);
+
+  useEffect(() => {
+    if (proctoringState.status !== "active" || !activeSection) return;
+    void logEvent("section_change", { section_id: activeSection });
+  }, [activeSection, logEvent, proctoringState.status]);
 
   useEffect(() => {
     if (!isIntegerQuestion) {
@@ -645,6 +749,7 @@ export default function NormalTestInterface() {
         body: { attempt_id: attemptId, answers, time_taken_seconds: Math.max(1, (testDuration * 60) - timeLeft), fullscreen_exit_count: fullscreenExitCount },
       });
       if (error || data?.error) throw new Error(data?.error || error?.message || "Failed to submit test");
+      await endSession();
       navigate(`/test/${testId}/analysis`, { state: { results: data, testName } });
     } catch (e: any) {
       console.error(e);
@@ -656,7 +761,10 @@ export default function NormalTestInterface() {
   const handleFullscreenExitCountChange = useCallback((count: number) => {
     setFullscreenExitCount(count);
     if (attemptId) supabase.from("test_attempts").update({ fullscreen_exit_count: count }).eq("id", attemptId).then(({ error }) => { if (error) console.error(error); });
-  }, [attemptId]);
+    if (proctoringState.status === "active") {
+      void logEvent("fullscreen_exit", { count });
+    }
+  }, [attemptId, logEvent, proctoringState.status]);
 
   const handleMaxFullscreenExits = useCallback(() => {
     toast({ title: "Test Auto-Submitted", description: "You exceeded the maximum allowed fullscreen exits.", variant: "destructive" });
@@ -898,6 +1006,66 @@ export default function NormalTestInterface() {
                     style={{ padding: "8px 20px", background: "#fff", border: "1px solid #aaa", fontSize: 13, cursor: "pointer", borderRadius: 2, color: "#333" }}
                   >
                     Close
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {proctoringSetupOpen && proctoringEnabled && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}
+              onClick={() => setProctoringSetupOpen(false)}
+            >
+              <motion.div
+                initial={{ scale: .95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: .95, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                style={{ background: "#fff", border: "1px solid #bbb", borderRadius: 4, padding: 20, width: 460, maxWidth: "92vw", fontFamily: "Arial,sans-serif", boxShadow: "0 8px 32px rgba(0,0,0,.25)" }}
+              >
+                <div style={{ borderBottom: "2px solid #2979c5", paddingBottom: 8, marginBottom: 12, fontSize: 15, fontWeight: "bold", color: "#1a3a5c" }}>
+                  Live Monitoring Setup
+                </div>
+                <p style={{ fontSize: 12.5, color: "#444", lineHeight: 1.6 }}>
+                  This test uses live monitoring. Please grant the required permissions before starting.
+                </p>
+                <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+                  {[
+                    { key: "camera", label: "Camera", required: requireCamera, icon: <Camera size={14} /> },
+                    { key: "mic", label: "Microphone", required: requireMic, icon: <Mic size={14} /> },
+                    { key: "screen", label: "Screen Share", required: requireScreen, icon: <MonitorPlay size={14} /> },
+                  ].map((item) => (
+                    <label key={item.key} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, color: "#333" }}>
+                      <input
+                        type="checkbox"
+                        checked={proctoringOptions[item.key as keyof typeof proctoringOptions]}
+                        onChange={(e) => setProctoringOptions((prev) => ({ ...prev, [item.key]: e.target.checked }))}
+                        disabled={item.required}
+                      />
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {item.icon}
+                        {item.label} {item.required && <strong>(Required)</strong>}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
+                  <button
+                    onClick={() => setProctoringSetupOpen(false)}
+                    style={{ padding: "8px 20px", background: "#fff", border: "1px solid #aaa", fontSize: 13, cursor: "pointer", borderRadius: 2, color: "#333" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleProctoringContinue}
+                    style={{ padding: "8px 24px", background: "#2979c5", border: "none", color: "#fff", fontSize: 13, fontWeight: "bold", cursor: "pointer", borderRadius: 2 }}
+                  >
+                    Grant Permissions & Start
                   </button>
                 </div>
               </motion.div>

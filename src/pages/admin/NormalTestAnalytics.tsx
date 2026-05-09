@@ -76,6 +76,7 @@ export default function NormalTestAnalytics() {
   const navigate = useNavigate();
   
   const [testName, setTestName] = useState("");
+  const [proctoringEnabled, setProctoringEnabled] = useState(false);
   const [attempts, setAttempts] = useState<TestAttempt[]>([]);
   const [questionStats, setQuestionStats] = useState<QuestionStats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,7 +101,7 @@ export default function NormalTestAnalytics() {
       // Fetch test details
       const { data: test, error: testError } = await supabase
         .from("tests")
-        .select("name")
+        .select("name, proctoring_enabled")
         .eq("id", testId)
         .single();
       
@@ -108,7 +109,10 @@ export default function NormalTestAnalytics() {
         console.error("Error fetching test:", testError);
       }
       
-      if (test) setTestName(test.name);
+      if (test) {
+        setTestName(test.name);
+        setProctoringEnabled(test.proctoring_enabled ?? false);
+      }
 
       // Fetch all attempts - using separate queries to avoid join issues
       const { data: attemptsData, error: attemptsError } = await supabase
@@ -296,6 +300,12 @@ export default function NormalTestAnalytics() {
             <h1 className="text-2xl font-bold font-display">Test Analytics</h1>
             <p className="text-muted-foreground">{testName}</p>
           </div>
+          {proctoringEnabled && (
+            <span className="ml-auto inline-flex items-center gap-2 text-xs font-semibold text-emerald-600">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              Live monitoring enabled
+            </span>
+          )}
         </div>
 
         {/* Tabs */}

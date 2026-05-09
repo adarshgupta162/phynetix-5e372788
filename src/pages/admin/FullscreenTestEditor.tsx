@@ -47,6 +47,14 @@ interface Test {
   fullscreen_enabled: boolean;
   show_solutions: boolean;
   instructions_json: any;
+  proctoring_enabled?: boolean | null;
+  proctoring_provider?: string | null;
+  proctoring_require_camera?: boolean | null;
+  proctoring_require_mic?: boolean | null;
+  proctoring_require_screen?: boolean | null;
+  proctoring_allowlist_enabled?: boolean | null;
+  proctoring_recording_enabled?: boolean | null;
+  proctoring_retention_days?: number | null;
 }
 
 interface Subject {
