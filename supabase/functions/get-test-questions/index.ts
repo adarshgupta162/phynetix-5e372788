@@ -217,6 +217,8 @@ serve(async (req) => {
               question_type: q.section?.section_type || "single_choice",
               subject: q.section?.subject?.name ?? "General",
               chapter: q.section?.name ?? "General",
+              section_id: q.section?.id ?? null,
+              section_order: q.section?.order_index ?? 0,
               image_url: imageUrls[0] || null,
               image_urls: imageUrls,
               paragraph_id: q.paragraph_id,
