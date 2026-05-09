@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
 import { motion } from "framer-motion";
 import { 
   User, 
@@ -11,7 +11,8 @@ import {
   BookOpen,
   Save,
   X,
-  Hash
+  Hash,
+  Upload
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,8 @@ export default function ProfilePage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({ full_name: "", target_exam: "" });
   const [loading, setLoading] = useState(true);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (user) {
@@ -102,6 +105,37 @@ export default function ProfilePage() {
     }
   };
 
+  const handlePhotoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !user) return;
+
+    setUploadingPhoto(true);
+    try {
+      const photoDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(file);
+      });
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({ avatar_url: photoDataUrl })
+        .eq("id", user.id);
+
+      if (error) throw error;
+
+      setProfile((prev) => prev ? { ...prev, avatar_url: photoDataUrl } : prev);
+      toast({ title: "Success", description: "Profile photo updated successfully" });
+    } catch (error) {
+      console.error(error);
+      toast({ title: "Error", description: "Failed to upload profile photo", variant: "destructive" });
+    } finally {
+      setUploadingPhoto(false);
+      if (photoInputRef.current) photoInputRef.current.value = "";
+    }
+  };
+
   const displayName = profile?.full_name || user?.email?.split("@")[0] || "Student";
   const initials = displayName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
 
@@ -134,9 +168,31 @@ export default function ProfilePage() {
         >
           <div className="flex flex-col lg:flex-row items-start lg:items-center gap-6">
             <div className="relative">
-              <div className="w-24 h-24 lg:w-32 lg:h-32 rounded-2xl bg-gradient-primary flex items-center justify-center text-3xl lg:text-4xl font-bold">
-                {initials}
+              <div className="w-24 h-24 lg:w-32 lg:h-32 rounded-2xl bg-gradient-primary flex items-center justify-center text-3xl lg:text-4xl font-bold overflow-hidden">
+                {profile?.avatar_url ? (
+                  <img src={profile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  initials
+                )}
               </div>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handlePhotoUpload}
+              />
+              <Button
+                type="button"
+                variant="glass"
+                size="sm"
+                className="mt-3"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={uploadingPhoto}
+              >
+                <Upload className="w-4 h-4" />
+                {uploadingPhoto ? "Uploading..." : "Upload Photo"}
+              </Button>
             </div>
 
             <div className="flex-1">

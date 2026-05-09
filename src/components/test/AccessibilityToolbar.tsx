@@ -22,10 +22,35 @@ export default function AccessibilityToolbar({ className, inline }: Accessibilit
   // Magnifier — CSS zoom on test content area
   useEffect(() => {
     const contentArea = document.querySelector('[data-test-content]') as HTMLElement;
+    const supportsZoom = typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("zoom", "1.1");
     if (contentArea) {
-      contentArea.style.zoom = magnifierOn ? String(zoomLevel) : '1';
+      if (magnifierOn) {
+        if (supportsZoom) {
+          contentArea.style.zoom = String(zoomLevel);
+          contentArea.style.transform = "";
+          contentArea.style.transformOrigin = "";
+          contentArea.style.width = "";
+        } else {
+          contentArea.style.zoom = "1";
+          contentArea.style.transform = `scale(${zoomLevel})`;
+          contentArea.style.transformOrigin = "top left";
+          contentArea.style.width = `${100 / zoomLevel}%`;
+        }
+      } else {
+        contentArea.style.zoom = "1";
+        contentArea.style.transform = "";
+        contentArea.style.transformOrigin = "";
+        contentArea.style.width = "";
+      }
     }
-    return () => { if (contentArea) contentArea.style.zoom = '1'; };
+    return () => {
+      if (contentArea) {
+        contentArea.style.zoom = "1";
+        contentArea.style.transform = "";
+        contentArea.style.transformOrigin = "";
+        contentArea.style.width = "";
+      }
+    };
   }, [magnifierOn, zoomLevel]);
 
   const increaseZoom = () => setZoomLevel(prev => Math.min(prev + 0.25, 3));

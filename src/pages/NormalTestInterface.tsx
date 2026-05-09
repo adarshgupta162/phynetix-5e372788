@@ -17,14 +17,17 @@ interface Question {
   options: string[] | null; difficulty: string; marks: number;
   negative_marks: number; question_type: string; subject: string;
   chapter: string; image_url?: string; image_urls?: string[];
+  section_id?: string; section_order?: number;
   section_type?: string; paragraph_id?: string; paragraph_text?: string;
   paragraph_image_urls?: string[];
 }
 interface Section { id: string; name: string; questions: Question[]; section_type?: string; }
 type AttemptProgressPayload = {
   answers?: Record<string, string | string[]>;
-  time_per_question?: Record<string, number>;
+  time_per_question?: Record<string, number | string[]>;
 };
+
+const VISITED_QUESTIONS_META_KEY = "__visited_questions__";
 
 /* ─── EXACT COLOURS FROM SCREENSHOT ─── */
 const C = {
@@ -169,11 +172,14 @@ export default function NormalTestInterface() {
   const [timeExpired, setTimeExpired]           = useState(false);
   const [showPalette, setShowPalette]           = useState(true);
   const [isOffline, setIsOffline]               = useState(!navigator.onLine);
+  const [isMobileDevice, setIsMobileDevice]     = useState(false);
+  const [integerCursorPosition, setIntegerCursorPosition] = useState(0);
   const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
   const persistSequenceRef = useRef(0);
 
   // tooltip hover state
   const [hoveredSectionTooltip, setHoveredSectionTooltip] = useState<string | null>(null);
+  const [hoveredSectionInfo, setHoveredSectionInfo] = useState<string | null>(null);
   const [showTestTooltip, setShowTestTooltip]   = useState(false);
 
   /* ════ ALL API/BACKEND LOGIC — 100% IDENTICAL TO ORIGINAL ════ */
@@ -185,6 +191,13 @@ export default function NormalTestInterface() {
     window.addEventListener("offline", goOffline);
     window.addEventListener("online", goOnline);
     return () => { window.removeEventListener("offline", goOffline); window.removeEventListener("online", goOnline); };
+  }, []);
+
+  useEffect(() => {
+    const ua = navigator.userAgent || "";
+    const isMobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+    const isCoarsePointer = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    setIsMobileDevice(isMobileUA || isCoarsePointer);
   }, []);
 
   useEffect(() => { if (testId) checkExistingAttemptFn(); }, [testId]);
@@ -245,30 +258,57 @@ export default function NormalTestInterface() {
       setTimeLeft(startData.remaining_seconds ?? startData.duration_minutes * 60);
       if (startData.fullscreen_exit_count) setFullscreenExitCount(startData.fullscreen_exit_count);
       if (startData.is_resume && startData.existing_answers) setAnswers(startData.existing_answers);
-      if (startData.is_resume && startData.existing_time_per_question) setTimePerQuestion(startData.existing_time_per_question);
+      const existingTimeMapRaw = (startData.is_resume && startData.existing_time_per_question)
+        ? startData.existing_time_per_question
+        : {};
+      const numericTimeMap = Object.entries(existingTimeMapRaw || {}).reduce<Record<string, number>>((acc, [qid, value]) => {
+        if (qid === VISITED_QUESTIONS_META_KEY) return acc;
+        const numericValue = Number(value);
+        if (Number.isFinite(numericValue)) acc[qid] = numericValue;
+        return acc;
+      }, {});
+      setTimePerQuestion(numericTimeMap);
       const { data: qData, error: qErr } = await supabase.functions.invoke("get-test-questions", { body: { test_id: testId } });
       if (qErr || qData?.error) throw new Error(qData?.error || qErr?.message || "Failed to load questions");
       if (!qData.questions?.length) throw new Error("No questions found for this test");
       const allQ: Question[] = qData.questions;
       setQuestions(allQ);
-      const secMap = new Map<string, Question[]>();
+      const secMap = new Map<string, { section: Section; questions: Question[] }>();
       allQ.forEach((q: Question) => {
         const subj = q.subject || "General";
         const qt = q.question_type || q.section_type || "single_choice";
         const label = qt === "single_choice" ? "SCQ" : qt === "multiple_choice" || qt === "multi" ? "MCQ" : qt === "integer" || qt === "numerical" ? "Integer" : "SCQ";
-        const key = `${subj}(${label})`;
-        if (!secMap.has(key)) secMap.set(key, []);
-        secMap.get(key)!.push(q);
+        const key = q.section_id ? `section-${q.section_id}` : `${subj}(${label})`;
+        if (!secMap.has(key)) {
+          secMap.set(key, {
+            section: {
+              id: q.section_id ? `section-${q.section_id}` : key.toLowerCase().replace(/[^a-z0-9]/g, "-"),
+              name: q.section_id ? (q.chapter || `${subj} (${label})`) : `${subj}(${label})`,
+              questions: [],
+              section_type: q.section_type || q.question_type || "single_choice",
+            },
+            questions: [],
+          });
+        }
+        secMap.get(key)!.questions.push(q);
       });
-      const secList: Section[] = Array.from(secMap.entries()).map(([name, qs]) => ({
-        id: name.toLowerCase().replace(/[^a-z0-9]/g, "-"), name,
+      const secList: Section[] = Array.from(secMap.values()).map(({ section, questions: qs }) => ({
+        ...section,
         questions: qs.sort((a, b) => a.order - b.order),
-        section_type: qs[0]?.question_type || qs[0]?.section_type || "single_choice"
+        section_type: qs[0]?.section_type || qs[0]?.question_type || section.section_type || "single_choice",
       }));
       setSections(secList);
       if (secList.length) setActiveSection(secList[0].id);
       if (allQ.length) {
-        if (startData.is_resume && startData.existing_answers) {
+        const persistedVisited = Array.isArray(existingTimeMapRaw?.[VISITED_QUESTIONS_META_KEY])
+          ? new Set((existingTimeMapRaw?.[VISITED_QUESTIONS_META_KEY] as string[]).filter(Boolean))
+          : new Set<string>();
+        let nextVisitedSet: Set<string>;
+
+        if (startData.is_resume && persistedVisited.size > 0) {
+          persistedVisited.add(allQ[0].id);
+          nextVisitedSet = persistedVisited;
+        } else if (startData.is_resume && startData.existing_answers) {
           // On resume: answered questions → visited (will show green via "answered" status)
           // Questions the user SAW but didn't answer → visited (will show red "not-answered")
           // Questions never seen → NOT visited (will show grey "not-visited" / white)
@@ -280,10 +320,15 @@ export default function NormalTestInterface() {
           );
           // Also mark the first question as visited (since user will see it)
           answeredIds.add(allQ[0].id);
-          setVisitedQuestions(answeredIds);
+          nextVisitedSet = answeredIds;
         } else {
-          setVisitedQuestions(new Set([allQ[0].id]));
+          nextVisitedSet = new Set([allQ[0].id]);
         }
+        setVisitedQuestions(nextVisitedSet);
+        await supabase
+          .from("test_attempts")
+          .update({ time_per_question: buildPersistedTimePayload(numericTimeMap, nextVisitedSet) })
+          .eq("id", startData.attempt_id);
       }
       setLoading(false);
     } catch (e: any) {
@@ -310,6 +355,10 @@ export default function NormalTestInterface() {
   const isMultipleChoice  = ["multiple_choice", "multi"].includes(currentQuestion?.question_type || "") || ["multiple_choice", "multi"].includes(currentQuestion?.section_type || "");
   const isIntegerQuestion = ["integer", "numerical"].includes(currentQuestion?.question_type || "");
   const currentQuestionId = currentQuestion?.id;
+  const buildPersistedTimePayload = useCallback((nextTimeMap: Record<string, number>, nextVisitedQuestions: Set<string>) => ({
+    ...nextTimeMap,
+    [VISITED_QUESTIONS_META_KEY]: Array.from(nextVisitedQuestions),
+  }), []);
 
   const cloneAnswerValue = (answer?: string | string[]) => Array.isArray(answer) ? [...answer] : answer;
   const normalizeAnswerValue = (answer?: string | string[]) => {
@@ -333,6 +382,15 @@ export default function NormalTestInterface() {
     setDraftAnswer(cloneAnswerValue(answers[currentQuestionId]));
   }, [currentQuestionId, answers]);
 
+  useEffect(() => {
+    if (!isIntegerQuestion) {
+      setIntegerCursorPosition(0);
+      return;
+    }
+    const currentValue = typeof displayedCurrentAnswer === "string" ? displayedCurrentAnswer : "";
+    setIntegerCursorPosition(currentValue.length);
+  }, [currentQuestionId, isIntegerQuestion]);
+
   /* single choice — only one option selectable, cannot deselect */
   const handleAnswer = (idx: number) => {
     if (!currentQuestion) return;
@@ -355,8 +413,42 @@ export default function NormalTestInterface() {
   const handleIntegerAnswer = (v: string) => {
     if (!currentQuestion) return;
     setDraftQuestionId(currentQuestion.id);
-    setDraftAnswer(v.replace(/[^0-9-]/g, ""));
+    const cursor = Math.min(integerCursorPosition, v.length);
+    const cleaned = v.replace(/[^0-9.-]/g, "");
+    setDraftAnswer(cleaned);
+    setIntegerCursorPosition(Math.min(cursor, cleaned.length));
   };
+
+  const setIntegerAnswerWithCursor = (nextValue: string, nextCursor: number) => {
+    if (!currentQuestion) return;
+    setDraftQuestionId(currentQuestion.id);
+    setDraftAnswer(nextValue);
+    setIntegerCursorPosition(Math.max(0, Math.min(nextCursor, nextValue.length)));
+  };
+
+  const handleIntegerKeypadInsert = (token: string) => {
+    const currentValue = typeof displayedCurrentAnswer === "string" ? displayedCurrentAnswer : "";
+    const cursor = Math.max(0, Math.min(integerCursorPosition, currentValue.length));
+    const nextValue = `${currentValue.slice(0, cursor)}${token}${currentValue.slice(cursor)}`;
+    setIntegerAnswerWithCursor(nextValue, cursor + token.length);
+  };
+
+  const handleIntegerKeypadBackspace = () => {
+    const currentValue = typeof displayedCurrentAnswer === "string" ? displayedCurrentAnswer : "";
+    if (!currentValue) return;
+    const nextValue = currentValue.slice(0, -1);
+    setIntegerAnswerWithCursor(nextValue, Math.min(integerCursorPosition, nextValue.length));
+  };
+
+  const moveIntegerCursor = (direction: "left" | "right") => {
+    const currentValue = typeof displayedCurrentAnswer === "string" ? displayedCurrentAnswer : "";
+    setIntegerCursorPosition((prev) => {
+      if (direction === "left") return Math.max(0, prev - 1);
+      return Math.min(currentValue.length, prev + 1);
+    });
+  };
+
+  const clearIntegerAnswer = () => setIntegerAnswerWithCursor("", 0);
 
   const clearResponse = () => {
     if (!currentQuestion) return;
@@ -412,10 +504,10 @@ export default function NormalTestInterface() {
     if (currentScreen !== 4 || !attemptId || loading) return;
     const i = setInterval(() => {
       const nextTimeMap = buildCurrentTimeSnapshot();
-      void enqueueAttemptUpdate({ time_per_question: nextTimeMap });
+      void enqueueAttemptUpdate({ time_per_question: buildPersistedTimePayload(nextTimeMap, visitedQuestions) });
     }, 10000);
     return () => clearInterval(i);
-  }, [currentScreen, attemptId, loading, buildCurrentTimeSnapshot, enqueueAttemptUpdate]);
+  }, [currentScreen, attemptId, loading, buildCurrentTimeSnapshot, enqueueAttemptUpdate, buildPersistedTimePayload, visitedQuestions]);
 
   const buildCommittedAnswers = useCallback(() => {
     if (!currentQuestion) return answers;
@@ -429,7 +521,7 @@ export default function NormalTestInterface() {
     return nextAnswers;
   }, [answers, currentQuestion, displayedCurrentAnswer]);
 
-  const commitCurrentQuestionProgress = useCallback(async (options: { markForReview?: boolean } = {}) => {
+  const commitCurrentQuestionProgress = useCallback(async (options: { markForReview?: boolean; nextVisitedQuestions?: Set<string> } = {}) => {
     if (!currentQuestion) return;
 
     const nextAnswers = buildCommittedAnswers();
@@ -444,23 +536,41 @@ export default function NormalTestInterface() {
     }
 
     setAnswers(nextAnswers);
-    await enqueueAttemptUpdate({ answers: nextAnswers, time_per_question: nextTimeMap });
-  }, [buildCommittedAnswers, commitCurrentQuestionTime, currentQuestion, enqueueAttemptUpdate]);
+    await enqueueAttemptUpdate({ answers: nextAnswers, time_per_question: buildPersistedTimePayload(nextTimeMap, options.nextVisitedQuestions || visitedQuestions) });
+  }, [buildCommittedAnswers, commitCurrentQuestionTime, currentQuestion, enqueueAttemptUpdate, buildPersistedTimePayload, visitedQuestions]);
 
-  const navigateWithoutSavingAnswer = useCallback((navigateFn: () => void) => {
+  const navigateWithoutSavingAnswer = useCallback((navigateFn: () => void, nextVisitedQuestions?: Set<string>) => {
     const nextTimeMap = commitCurrentQuestionTime();
-    void enqueueAttemptUpdate({ time_per_question: nextTimeMap });
+    void enqueueAttemptUpdate({ time_per_question: buildPersistedTimePayload(nextTimeMap, nextVisitedQuestions || visitedQuestions) });
     navigateFn();
-  }, [commitCurrentQuestionTime, enqueueAttemptUpdate]);
+  }, [commitCurrentQuestionTime, enqueueAttemptUpdate, buildPersistedTimePayload, visitedQuestions]);
 
   /* Commit answers only on explicit save actions */
+  const getNextQuestionId = () => {
+    if (!currentSection) return null;
+    if (currentQuestionIndex < currentSection.questions.length - 1) {
+      return currentSection.questions[currentQuestionIndex + 1]?.id || null;
+    }
+    const currentSectionIndex = sections.findIndex(s => s.id === activeSection);
+    if (currentSectionIndex >= 0 && currentSectionIndex < sections.length - 1) {
+      return sections[currentSectionIndex + 1]?.questions?.[0]?.id || null;
+    }
+    return null;
+  };
+
   const saveAndNext = async () => {
-    await commitCurrentQuestionProgress();
+    const nextQuestionId = getNextQuestionId();
+    const nextVisited = new Set(visitedQuestions);
+    if (nextQuestionId) nextVisited.add(nextQuestionId);
+    await commitCurrentQuestionProgress({ nextVisitedQuestions: nextVisited });
     goToNextQuestion();
   };
 
   const markForReviewAndNext = async () => {
-    await commitCurrentQuestionProgress({ markForReview: true });
+    const nextQuestionId = getNextQuestionId();
+    const nextVisited = new Set(visitedQuestions);
+    if (nextQuestionId) nextVisited.add(nextQuestionId);
+    await commitCurrentQuestionProgress({ markForReview: true, nextVisitedQuestions: nextVisited });
     goToNextQuestion();
   };
 
@@ -485,7 +595,7 @@ export default function NormalTestInterface() {
     try {
       const nextTimeMap = buildCurrentTimeSnapshot();
       setTimePerQuestion(nextTimeMap);
-      await enqueueAttemptUpdate({ time_per_question: nextTimeMap });
+      await enqueueAttemptUpdate({ time_per_question: buildPersistedTimePayload(nextTimeMap, visitedQuestions) });
 
       const { data, error } = await supabase.functions.invoke("submit-test", {
         body: { attempt_id: attemptId, answers, time_taken_seconds: Math.max(1, (testDuration * 60) - timeLeft), fullscreen_exit_count: fullscreenExitCount },
@@ -497,7 +607,7 @@ export default function NormalTestInterface() {
       toast({ title: "Error", description: e.message || "Failed to submit test.", variant: "destructive" });
       setSubmitting(false);
     }
-  }, [attemptId, answers, timeLeft, testId, testName, navigate, submitting, fullscreenExitCount, buildCurrentTimeSnapshot, enqueueAttemptUpdate, testDuration]);
+  }, [attemptId, answers, timeLeft, testId, testName, navigate, submitting, fullscreenExitCount, buildCurrentTimeSnapshot, enqueueAttemptUpdate, testDuration, buildPersistedTimePayload, visitedQuestions]);
 
   const handleFullscreenExitCountChange = useCallback((count: number) => {
     setFullscreenExitCount(count);
@@ -723,7 +833,7 @@ export default function NormalTestInterface() {
   const sc = getStatusCounts();
 
   const testContent = (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", fontFamily: "Arial,sans-serif", fontSize: 13, overflow: "hidden", background: "#f5f5f5" }}>
+    <div data-test-content style={{ height: "100vh", display: "flex", flexDirection: "column", fontFamily: "Arial,sans-serif", fontSize: 13, overflow: "hidden", background: "#f5f5f5" }}>
 
       {/* ── ROW 1: Full-width dark top bar ── */}
       <div style={{ background: C.topbarDark, color: "#fff", height: 32, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", flexShrink: 0, zIndex: 10 }}>
@@ -751,6 +861,27 @@ export default function NormalTestInterface() {
           <div style={{ background: C.sectionTabBg, borderBottom: "1px solid #ccc", padding: "4px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: "bold", color: "#111" }}>{testName}</span>
+              {sections.map(sec => (
+                <div
+                  key={`section-info-${sec.id}`}
+                  style={{ position: "relative" }}
+                  onMouseEnter={() => setHoveredSectionInfo(sec.id)}
+                  onMouseLeave={() => setHoveredSectionInfo(null)}
+                >
+                  <span style={{ width: 16, height: 16, background: "#6b7280", borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, fontWeight: "bold", cursor: "pointer", flexShrink: 0 }}>i</span>
+                  {hoveredSectionInfo === sec.id && (
+                    <div style={{
+                      position: "absolute", top: "115%", left: "50%", transform: "translateX(-50%)",
+                      background: "#fff", border: "1px solid #bbb", borderRadius: 4, padding: "8px 10px",
+                      boxShadow: "0 4px 16px rgba(0,0,0,.18)", zIndex: 9999, minWidth: 180,
+                      fontFamily: "Arial,sans-serif", fontSize: 12, color: "#222", whiteSpace: "nowrap",
+                    }}>
+                      <div style={{ fontWeight: "bold", marginBottom: 2 }}>{sec.name}</div>
+                      <div>{sec.questions.length} Questions • {(sec.section_type || "single_choice").replace(/_/g, " ")}</div>
+                    </div>
+                  )}
+                </div>
+              ))}
               {/* i button for full test tooltip */}
               <div style={{ position: "relative" }}
                 onMouseEnter={() => setShowTestTooltip(true)}
@@ -778,12 +909,14 @@ export default function NormalTestInterface() {
                     onMouseLeave={() => setHoveredSectionTooltip(null)}>
                     <button
                       onClick={() => {
+                        const firstQ = sec.questions[0];
+                        const nextVisited = new Set(visitedQuestions);
+                        if (firstQ) nextVisited.add(firstQ.id);
                         navigateWithoutSavingAnswer(() => {
                           setActiveSection(sec.id);
                           setCurrentQuestionIndex(0);
-                          const firstQ = sec.questions[0];
-                          if (firstQ) setVisitedQuestions(p => new Set([...p, firstQ.id]));
-                        });
+                          if (firstQ) setVisitedQuestions(nextVisited);
+                        }, nextVisited);
                       }}
                       style={{ display: "flex", alignItems: "center", gap: 3, padding: "4px 12px", border: "1px solid", borderColor: activeSection === sec.id ? "#1a60b0" : "#b0c8e0", borderRadius: 3, background: activeSection === sec.id ? C.secActive : C.secInactive, color: activeSection === sec.id ? "#fff" : "#1a1a1a", fontSize: 12, fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap" }}>
                       {sec.name}
@@ -809,14 +942,14 @@ export default function NormalTestInterface() {
                 <div style={{ fontSize: 10, fontWeight: "bold", color: "#9a6500", marginBottom: 5, textTransform: "uppercase" }}>Paragraph</div>
                 <LatexRenderer content={currentQuestion.paragraph_text} />
                 {currentQuestion.paragraph_image_urls?.map((img, i) => (
-                  <img key={i} src={img} alt="" style={{ maxWidth: "100%", marginTop: 6, border: "1px solid #ddd" }} />
+                  <img key={i} src={img} alt="" style={{ maxWidth: "100%", marginTop: 6, border: "none", display: "block" }} />
                 ))}
               </div>
             )}
 
             {(() => {
               const imgs = currentQuestion?.image_urls?.length ? currentQuestion.image_urls : currentQuestion?.image_url ? [currentQuestion.image_url] : [];
-              return imgs.length > 0 && <div style={{ marginBottom: 10 }}>{imgs.map((u, i) => <img key={i} src={u} alt="" style={{ maxWidth: "100%", border: "1px solid #ddd", marginBottom: 6 }} onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />)}</div>;
+              return imgs.length > 0 && <div style={{ marginBottom: 10 }}>{imgs.map((u, i) => <img key={i} src={u} alt="" style={{ maxWidth: "100%", border: "none", marginBottom: 0, display: "block" }} onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />)}</div>;
             })()}
 
             {currentQuestion?.question_text && (
@@ -827,15 +960,57 @@ export default function NormalTestInterface() {
 
             {/* Options */}
             {isIntegerQuestion ? (
-              <div style={{ marginTop: 10 }}>
+              <div style={{ marginTop: 10, width: 180 }}>
                 <div style={{ fontSize: 13, color: "#444", marginBottom: 8 }}>Enter your answer (integer only):</div>
                 <input
-                  type="text" inputMode="numeric"
+                  type="text"
+                  inputMode={isMobileDevice ? "none" : "decimal"}
+                  readOnly={isMobileDevice}
                   value={typeof displayedCurrentAnswer === "string" ? displayedCurrentAnswer : ""}
                   onChange={e => handleIntegerAnswer(e.target.value)}
+                  onClick={(e) => {
+                    const target = e.target as HTMLInputElement;
+                    const nextCursor = target.selectionStart ?? target.value.length;
+                    setIntegerCursorPosition(Math.min(nextCursor, target.value.length));
+                  }}
+                  onSelect={(e) => {
+                    const target = e.target as HTMLInputElement;
+                    const nextCursor = target.selectionStart ?? target.value.length;
+                    setIntegerCursorPosition(Math.min(nextCursor, target.value.length));
+                  }}
                   placeholder="Type answer"
-                  style={{ padding: "8px 12px", border: "2px solid #888", width: 180, fontSize: 16, fontFamily: "monospace", textAlign: "center", outline: "none", background: "#ffffff", color: "#000" }}
+                  style={{ padding: "8px 12px", border: "2px solid #888", width: "100%", fontSize: 16, fontFamily: "monospace", textAlign: "center", outline: "none", background: "#ffffff", color: "#000", borderRadius: 6, boxSizing: "border-box" }}
                 />
+                <div style={{ marginTop: 8, background: "#eef3f9", border: "1px solid #d2dce8", borderRadius: 8, padding: 8, width: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 6 }}>
+                  <button type="button" onClick={handleIntegerKeypadBackspace} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", fontWeight: "bold", cursor: "pointer" }}>
+                    Backspace
+                  </button>
+                  {[
+                    ["7", "8", "9"],
+                    ["4", "5", "6"],
+                    ["1", "2", "3"],
+                    ["0", ".", "-"],
+                  ].map((row, rowIndex) => (
+                    <div key={rowIndex} style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6 }}>
+                      {row.map((key) => (
+                        <button key={key} type="button" onClick={() => handleIntegerKeypadInsert(key)} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: 600 }}>
+                          {key}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6 }}>
+                    <button type="button" onClick={() => moveIntegerCursor("left")} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: 600 }}>
+                      ←
+                    </button>
+                    <button type="button" onClick={() => moveIntegerCursor("right")} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: 600 }}>
+                      →
+                    </button>
+                  </div>
+                  <button type="button" onClick={clearIntegerAnswer} style={{ width: "100%", height: 34, border: "1px solid #b8c5d8", borderRadius: 6, background: "#f8fbff", cursor: "pointer", fontWeight: "bold" }}>
+                    Clear All
+                  </button>
+                </div>
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -863,7 +1038,7 @@ export default function NormalTestInterface() {
                       <div style={{ flex: 1, fontSize: 14, lineHeight: 1.75, color: "#000" }} onClick={() => handleAnswer(idx)}>
                         <LatexRenderer content={opt.text} />
                         {opt.image_url && (
-                          <img src={opt.image_url} alt="" style={{ maxWidth: "100%", marginTop: 6, border: "1px solid #ddd" }}
+                          <img src={opt.image_url} alt="" style={{ maxWidth: "100%", marginTop: 6, border: "none", display: "block" }}
                             onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
                         )}
                       </div>
@@ -931,11 +1106,11 @@ export default function NormalTestInterface() {
           `}</style>
 
           {/* Candidate photo + name */}
-          <div style={{ background: "#fff", borderBottom: "1px solid #ccc", padding: "10px 8px", display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
-            <div style={{ width: 60, height: 68, background: "#ccc", border: "1px solid #aaa", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 6 }}>
+          <div style={{ background: "#fff", borderBottom: "1px solid #ccc", padding: "10px 8px", display: "flex", flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: "bold", color: "#111", textAlign: "left", flex: 1 }}>{studentName}</div>
+            <div style={{ width: 82, height: 92, background: "#ccc", border: "1px solid #aaa", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 6, flexShrink: 0 }}>
               {studentAvatar ? <img src={studentAvatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 34 }}>👤</span>}
             </div>
-            <div style={{ fontSize: 12, fontWeight: "bold", color: "#111", textAlign: "center" }}>{studentName}</div>
           </div>
 
           {/* Legend — icon + count + text, 2-col grid */}
@@ -973,10 +1148,12 @@ export default function NormalTestInterface() {
                   num={idx + 1}
                   status={getQuestionStatus(q.id)}
                   onClick={() => {
+                    const nextVisited = new Set(visitedQuestions);
+                    nextVisited.add(q.id);
                     navigateWithoutSavingAnswer(() => {
                       setCurrentQuestionIndex(idx);
-                      setVisitedQuestions(p => new Set([...p, q.id]));
-                    });
+                      setVisitedQuestions(nextVisited);
+                    }, nextVisited);
                     // Auto-close palette on mobile after selecting
                     if (window.innerWidth <= 768) setShowPalette(false);
                   }}
