@@ -7,6 +7,8 @@ import {
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { useProctoring } from "@/hooks/useProctoring";
 import FullscreenGuard from "@/components/test/FullscreenGuard";
 import AccessibilityToolbar from "@/components/test/AccessibilityToolbar";
 import { LatexRenderer } from "@/components/ui/latex-renderer";
@@ -138,6 +140,8 @@ export default function NormalTestInterface() {
   const { testId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
+  const proctoring = useProctoring(testId, user?.id);
 
   /* ── ALL STATE (100% identical to original) ── */
   const [attemptId, setAttemptId]               = useState<string | null>(null);
@@ -277,12 +281,18 @@ export default function NormalTestInterface() {
     return `${minutes}m ${seconds}s`;
   };
 
-  const startTest = () => {
+  const startTest = async () => {
     if (!agreedToTerms) {
       toast({ title: "Please agree to the terms", description: "You must agree to the test rules before starting.", variant: "destructive" }); return;
     }
     if (unlockDate && new Date(unlockDate) > new Date()) {
       setShowUnlockPopup(true);
+      return;
+    }
+    try {
+      await proctoring.prepare();
+    } catch (error: any) {
+      toast({ title: "Live monitoring required", description: error.message || "Please allow required monitoring permissions.", variant: "destructive" });
       return;
     }
     if (fullscreenEnabled) {
@@ -299,6 +309,7 @@ export default function NormalTestInterface() {
       const { data: startData, error: startError } = await supabase.functions.invoke("start-test", { body: { test_id: testId } });
       if (startError || startData?.error) throw new Error(startData?.error || startError?.message || "Failed to start test");
       setAttemptId(startData.attempt_id); setTestName(startData.test_name);
+      await proctoring.start(startData.attempt_id, { test_name: startData.test_name, interface: "normal" });
       setTimeLeft(startData.remaining_seconds ?? startData.duration_minutes * 60);
       if (startData.fullscreen_exit_count) setFullscreenExitCount(startData.fullscreen_exit_count);
       if (startData.is_resume && startData.existing_answers) setAnswers(startData.existing_answers);
@@ -399,6 +410,21 @@ export default function NormalTestInterface() {
   const isMultipleChoice  = ["multiple_choice", "multi"].includes(currentQuestion?.question_type || "") || ["multiple_choice", "multi"].includes(currentQuestion?.section_type || "");
   const isIntegerQuestion = ["integer", "numerical"].includes(currentQuestion?.question_type || "");
   const currentQuestionId = currentQuestion?.id;
+
+  useEffect(() => {
+    if (!currentQuestionId || !proctoring.session?.id) return;
+    proctoring.logEvent("question_change", {
+      questionId: currentQuestionId,
+      subjectName: currentQuestion?.subject || currentSection?.name,
+      payload: { question_index: currentQuestionIndex + 1, section_id: activeSection },
+    });
+  }, [activeSection, currentQuestion?.subject, currentQuestionId, currentQuestionIndex, currentSection?.name, proctoring.session?.id]);
+
+  useEffect(() => {
+    if (!proctoring.session?.id || !currentSection?.name) return;
+    proctoring.logEvent("subject_change", { subjectName: currentSection.name, payload: { section_id: currentSection.id } });
+  }, [currentSection?.id, currentSection?.name, proctoring.session?.id]);
+
   const buildPersistedTimePayload = useCallback((nextTimeMap: Record<string, number>, nextVisitedQuestions: Set<string>) => ({
     ...nextTimeMap,
     [VISITED_QUESTIONS_META_KEY]: Array.from(nextVisitedQuestions),
@@ -645,6 +671,7 @@ export default function NormalTestInterface() {
         body: { attempt_id: attemptId, answers, time_taken_seconds: Math.max(1, (testDuration * 60) - timeLeft), fullscreen_exit_count: fullscreenExitCount },
       });
       if (error || data?.error) throw new Error(data?.error || error?.message || "Failed to submit test");
+      await proctoring.stop(fromMax ? "max_fullscreen_exits" : "submitted");
       navigate(`/test/${testId}/analysis`, { state: { results: data, testName } });
     } catch (e: any) {
       console.error(e);
@@ -656,7 +683,8 @@ export default function NormalTestInterface() {
   const handleFullscreenExitCountChange = useCallback((count: number) => {
     setFullscreenExitCount(count);
     if (attemptId) supabase.from("test_attempts").update({ fullscreen_exit_count: count }).eq("id", attemptId).then(({ error }) => { if (error) console.error(error); });
-  }, [attemptId]);
+    proctoring.logEvent("fullscreen_exit", { payload: { count } });
+  }, [attemptId, proctoring]);
 
   const handleMaxFullscreenExits = useCallback(() => {
     toast({ title: "Test Auto-Submitted", description: "You exceeded the maximum allowed fullscreen exits.", variant: "destructive" });

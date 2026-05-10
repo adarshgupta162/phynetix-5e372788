@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { useProctoring } from '@/hooks/useProctoring';
 import ScrollPDFViewer from '@/components/test/ScrollPDFViewer';
 import EnhancedOMRPanel from '@/components/test/EnhancedOMRPanel';
 import SectionTaskbar from '@/components/test/SectionTaskbar';
@@ -57,6 +58,7 @@ export default function PDFTestInterface() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { toast } = useToast();
+  const proctoring = useProctoring(testId, user?.id);
 
   // States
   const [phase, setPhase] = useState<'loading' | 'instructions' | 'resume' | 'test' | 'submitting'>('loading');
@@ -110,6 +112,23 @@ export default function PDFTestInterface() {
       }
     }
   }, [currentQuestion, phase, questions]);
+
+  useEffect(() => {
+    if (phase !== 'test' || !proctoring.session?.id || !questions[currentQuestion]) return;
+    const question = questions[currentQuestion];
+    const section = sections.find((item) => item.id === question.section_id || item.questionIds.includes(question.id));
+    proctoring.logEvent('question_change', {
+      questionId: question.id,
+      subjectName: section?.subjectName,
+      payload: { question_index: currentQuestion + 1, section_id: question.section_id },
+    });
+  }, [currentQuestion, phase, proctoring.session?.id, questions, sections]);
+
+  useEffect(() => {
+    if (phase !== 'test' || !proctoring.session?.id || !activeSection) return;
+    const section = sections.find((item) => item.id === activeSection);
+    if (section?.subjectName) proctoring.logEvent('subject_change', { subjectName: section.subjectName, payload: { section_id: activeSection } });
+  }, [activeSection, phase, proctoring.session?.id, sections]);
 
   // Initialize test
   useEffect(() => {
@@ -306,6 +325,7 @@ export default function PDFTestInterface() {
 
       if (error) throw error;
 
+      await proctoring.stop('auto_submitted_time_expired');
       toast({ title: 'Test auto-submitted', description: 'Time expired' });
       navigate(`/test/${testId}/detailed-analysis?attemptId=${attemptId}`);
     } catch (err: any) {
@@ -348,6 +368,13 @@ export default function PDFTestInterface() {
 
   const resumeTest = async () => {
     if (!existingAttempt) return;
+    try {
+      await proctoring.prepare();
+      await proctoring.start(existingAttempt.id, { interface: 'pdf', resumed: true });
+    } catch (error: any) {
+      toast({ title: 'Live monitoring required', description: error.message || 'Please allow required monitoring permissions.', variant: 'destructive' });
+      return;
+    }
     setAttemptId(existingAttempt.id);
     setAnswers(existingAttempt.answers || {});
     setRollNumber(existingAttempt.roll_number || generateRollNumber());
@@ -359,6 +386,7 @@ export default function PDFTestInterface() {
     if (!testId || !user) return;
 
     try {
+      await proctoring.prepare();
       const { data, error } = await supabase.functions.invoke('start-test', {
         body: { test_id: testId }
       });
@@ -366,6 +394,7 @@ export default function PDFTestInterface() {
       if (error) throw error;
 
       setAttemptId(data.attempt_id);
+      await proctoring.start(data.attempt_id, { interface: 'pdf', test_name: testData?.name });
 
       await supabase
         .from('test_attempts')
@@ -458,6 +487,7 @@ export default function PDFTestInterface() {
           document.exitFullscreen();
         }
 
+        await proctoring.stop('submitted_awaiting_result');
         toast({ title: 'Test submitted!', description: 'Results will be available once answer key is uploaded.' });
         navigate('/tests');
         return;
@@ -477,6 +507,7 @@ export default function PDFTestInterface() {
         document.exitFullscreen();
       }
 
+      await proctoring.stop('submitted');
       toast({ title: 'Test submitted successfully!' });
       navigate(`/test/${testId}/detailed-analysis?attemptId=${attemptId}`);
     } catch (err: any) {

@@ -1265,6 +1265,267 @@ export type Database = {
           },
         ]
       }
+      proctoring_test_settings: {
+        Row: {
+          allow_optional_device_fallback: boolean
+          allow_specific_users_only: boolean
+          created_at: string
+          created_by: string | null
+          enabled: boolean
+          id: string
+          instructions: string | null
+          recording_enabled: boolean
+          require_camera: boolean
+          require_microphone: boolean
+          require_screen: boolean
+          retention_days: number
+          test_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          allow_optional_device_fallback?: boolean
+          allow_specific_users_only?: boolean
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          instructions?: string | null
+          recording_enabled?: boolean
+          require_camera?: boolean
+          require_microphone?: boolean
+          require_screen?: boolean
+          retention_days?: number
+          test_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          allow_optional_device_fallback?: boolean
+          allow_specific_users_only?: boolean
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean
+          id?: string
+          instructions?: string | null
+          recording_enabled?: boolean
+          require_camera?: boolean
+          require_microphone?: boolean
+          require_screen?: boolean
+          retention_days?: number
+          test_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proctoring_test_settings_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: true
+            referencedRelation: "tests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      proctoring_user_overrides: {
+        Row: {
+          allow_optional_device_fallback: boolean | null
+          allowed: boolean
+          created_at: string
+          created_by: string | null
+          enabled: boolean | null
+          id: string
+          notes: string | null
+          require_camera: boolean | null
+          require_microphone: boolean | null
+          require_screen: boolean | null
+          test_id: string
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          allow_optional_device_fallback?: boolean | null
+          allowed?: boolean
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean | null
+          id?: string
+          notes?: string | null
+          require_camera?: boolean | null
+          require_microphone?: boolean | null
+          require_screen?: boolean | null
+          test_id: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          allow_optional_device_fallback?: boolean | null
+          allowed?: boolean
+          created_at?: string
+          created_by?: string | null
+          enabled?: boolean | null
+          id?: string
+          notes?: string | null
+          require_camera?: boolean | null
+          require_microphone?: boolean | null
+          require_screen?: boolean | null
+          test_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proctoring_user_overrides_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: false
+            referencedRelation: "tests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      proctoring_sessions: {
+        Row: {
+          attempt_id: string
+          camera_enabled: boolean
+          camera_track_id: string | null
+          consent_accepted_at: string | null
+          consent_version: string
+          created_at: string
+          ended_at: string | null
+          failure_reason: string | null
+          id: string
+          last_heartbeat_at: string | null
+          metadata: Json
+          microphone_enabled: boolean
+          microphone_track_id: string | null
+          provider: string
+          provider_room_name: string
+          recording_enabled: boolean
+          screen_enabled: boolean
+          screen_track_id: string | null
+          started_at: string
+          status: Database["public"]["Enums"]["proctoring_session_status"]
+          test_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempt_id: string
+          camera_enabled?: boolean
+          camera_track_id?: string | null
+          consent_accepted_at?: string | null
+          consent_version?: string
+          created_at?: string
+          ended_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          last_heartbeat_at?: string | null
+          metadata?: Json
+          microphone_enabled?: boolean
+          microphone_track_id?: string | null
+          provider?: string
+          provider_room_name: string
+          recording_enabled?: boolean
+          screen_enabled?: boolean
+          screen_track_id?: string | null
+          started_at?: string
+          status?: Database["public"]["Enums"]["proctoring_session_status"]
+          test_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempt_id?: string
+          camera_enabled?: boolean
+          camera_track_id?: string | null
+          consent_accepted_at?: string | null
+          consent_version?: string
+          created_at?: string
+          ended_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          last_heartbeat_at?: string | null
+          metadata?: Json
+          microphone_enabled?: boolean
+          microphone_track_id?: string | null
+          provider?: string
+          provider_room_name?: string
+          recording_enabled?: boolean
+          screen_enabled?: boolean
+          screen_track_id?: string | null
+          started_at?: string
+          status?: Database["public"]["Enums"]["proctoring_session_status"]
+          test_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proctoring_sessions_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: true
+            referencedRelation: "test_attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proctoring_sessions_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: false
+            referencedRelation: "tests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      proctoring_events: {
+        Row: {
+          attempt_id: string
+          created_at: string
+          event_type: Database["public"]["Enums"]["proctoring_event_type"]
+          id: string
+          payload: Json
+          question_id: string | null
+          session_id: string
+          subject_name: string | null
+          test_id: string
+          user_id: string
+        }
+        Insert: {
+          attempt_id: string
+          created_at?: string
+          event_type: Database["public"]["Enums"]["proctoring_event_type"]
+          id?: string
+          payload?: Json
+          question_id?: string | null
+          session_id: string
+          subject_name?: string | null
+          test_id: string
+          user_id: string
+        }
+        Update: {
+          attempt_id?: string
+          created_at?: string
+          event_type?: Database["public"]["Enums"]["proctoring_event_type"]
+          id?: string
+          payload?: Json
+          question_id?: string | null
+          session_id?: string
+          subject_name?: string | null
+          test_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proctoring_events_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "proctoring_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       questions: {
         Row: {
           chapter_id: string
@@ -1779,6 +2040,27 @@ export type Database = {
       }
     }
     Enums: {
+      proctoring_session_status: "pending" | "active" | "ended" | "failed" | "stale"
+      proctoring_event_type:
+        | "consent_accepted"
+        | "permission_state"
+        | "session_started"
+        | "session_stopped"
+        | "heartbeat"
+        | "question_change"
+        | "subject_change"
+        | "answer_saved"
+        | "fullscreen_exit"
+        | "focus_lost"
+        | "focus_returned"
+        | "visibility_hidden"
+        | "visibility_visible"
+        | "screen_share_stopped"
+        | "camera_stopped"
+        | "microphone_muted"
+        | "provider_connected"
+        | "provider_disconnected"
+        | "failure"
       app_role:
         | "admin"
         | "student"

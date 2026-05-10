@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/dialog";
 import AdminLayout from "@/components/layout/AdminLayout";
 import PDFPreviewPanel from "@/components/admin/PDFPreviewPanel";
+import { ProctoringSettingsCard } from "@/components/admin/proctoring/ProctoringSettingsCard";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -698,6 +699,8 @@ export default function PDFTestEditor() {
                         Test will be available only after this time
                       </p>
                     </div>
+
+                    {testId && <ProctoringSettingsCard testId={testId} />}
 
                     <Button onClick={saveSettings} className="w-full">
                       Save Settings

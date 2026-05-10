@@ -15,7 +15,8 @@ import {
   Eye,
   ToggleLeft,
   ToggleRight,
-  RefreshCw
+  RefreshCw,
+  Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,7 @@ interface PDFTest {
   created_at: string;
   pdf_url: string | null;
   _count?: { questions: number; attempts: number };
+  proctoring_enabled?: boolean;
 }
 
 export default function PDFTestList() {
@@ -146,8 +148,15 @@ export default function PDFTestList() {
         _count: { questions: 0, attempts: 0 },
       }));
 
+      const { data: monitoringData } = await supabase
+        .from('proctoring_test_settings')
+        .select('test_id, enabled')
+        .in('test_id', baseList.map((test: any) => test.id));
+      const monitoringMap = Object.fromEntries((monitoringData || []).map((item) => [item.test_id, !!item.enabled]));
+      const hydratedList = baseList.map((test: any) => ({ ...test, proctoring_enabled: monitoringMap[test.id] || false }));
+
       if (fetchIdRef.current !== fetchId) return;
-      setTests(baseList);
+      setTests(hydratedList);
 
       // Non-blocking count hydration (so UI never spins forever)
       void hydrateCounts(
@@ -305,6 +314,11 @@ export default function PDFTestList() {
                       }`}>
                         {test.is_published ? "Active" : "Draft"}
                       </span>
+                      {test.proctoring_enabled && (
+                        <span className="px-2 py-1 text-xs rounded-full bg-red-500/10 text-red-600 flex items-center gap-1">
+                          <Shield className="w-3 h-3" /> Monitored
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-6 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1">
