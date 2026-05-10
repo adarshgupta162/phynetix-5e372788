@@ -24,6 +24,7 @@ import AdminLayout from "@/components/layout/AdminLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { withTimeout } from "@/lib/async";
+import { isMissingSupabaseTableError } from "@/lib/supabase/errors";
 
 interface PDFTest {
   id: string;
@@ -148,10 +149,13 @@ export default function PDFTestList() {
         _count: { questions: 0, attempts: 0 },
       }));
 
-      const { data: monitoringData } = await supabase
+      const { data: monitoringData, error: monitoringError } = await supabase
         .from('proctoring_test_settings')
         .select('test_id, enabled')
         .in('test_id', baseList.map((test: any) => test.id));
+      if (monitoringError && !isMissingSupabaseTableError(monitoringError)) {
+        console.error("Failed to load monitoring settings", monitoringError);
+      }
       const monitoringMap = Object.fromEntries((monitoringData || []).map((item) => [item.test_id, !!item.enabled]));
       const hydratedList = baseList.map((test: any) => ({ ...test, proctoring_enabled: monitoringMap[test.id] || false }));
 

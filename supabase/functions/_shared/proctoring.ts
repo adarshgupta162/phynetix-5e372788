@@ -36,6 +36,13 @@ export const isAdmin = async (supabaseAdmin: ReturnType<typeof getAdminClient>, 
   return !!data;
 };
 
+const isMissingSupabaseTableError = (error: { code?: string | null; message?: string | null } | null | undefined) => {
+  if (!error) return false;
+  const code = error.code ?? "";
+  const message = error.message ?? "";
+  return code === "42P01" || code === "PGRST205" || message.includes("schema cache");
+};
+
 export type EffectiveProctoringSettings = {
   enabled: boolean;
   allowed: boolean;
@@ -49,16 +56,33 @@ export type EffectiveProctoringSettings = {
   allow_specific_users_only: boolean;
 };
 
+const DEFAULT_EFFECTIVE_PROCTORING_SETTINGS: EffectiveProctoringSettings = {
+  enabled: false,
+  allowed: true,
+  require_camera: true,
+  require_microphone: true,
+  require_screen: true,
+  allow_optional_device_fallback: false,
+  recording_enabled: false,
+  retention_days: 30,
+  instructions: null,
+  allow_specific_users_only: false,
+};
+
 export const resolveSettings = async (
   supabaseAdmin: ReturnType<typeof getAdminClient>,
   testId: string,
   userId: string,
 ): Promise<EffectiveProctoringSettings> => {
-  const { data: settings } = await supabaseAdmin
+  const { data: settings, error: settingsError } = await supabaseAdmin
     .from("proctoring_test_settings")
     .select("*")
     .eq("test_id", testId)
     .maybeSingle();
+
+  if (settingsError && isMissingSupabaseTableError(settingsError)) {
+    return DEFAULT_EFFECTIVE_PROCTORING_SETTINGS;
+  }
 
   const base: EffectiveProctoringSettings = {
     enabled: settings?.enabled ?? false,
@@ -73,12 +97,16 @@ export const resolveSettings = async (
     allow_specific_users_only: settings?.allow_specific_users_only ?? false,
   };
 
-  const { data: override } = await supabaseAdmin
+  const { data: override, error: overrideError } = await supabaseAdmin
     .from("proctoring_user_overrides")
     .select("*")
     .eq("test_id", testId)
     .eq("user_id", userId)
     .maybeSingle();
+
+  if (overrideError && isMissingSupabaseTableError(overrideError)) {
+    return { ...base, allowed: !base.allow_specific_users_only };
+  }
 
   if (base.allow_specific_users_only && !override) base.allowed = false;
   if (override) {

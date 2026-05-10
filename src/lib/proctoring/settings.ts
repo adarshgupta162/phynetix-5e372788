@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { isMissingSupabaseTableError } from '@/lib/supabase/errors';
 import type { ProctoringSettings } from './types';
 
 export const DEFAULT_PROCTORING_SETTINGS: ProctoringSettings = {
@@ -15,12 +16,13 @@ export const DEFAULT_PROCTORING_SETTINGS: ProctoringSettings = {
 };
 
 export async function loadEffectiveProctoringSettings(testId: string, userId?: string | null): Promise<ProctoringSettings> {
-  const { data: settings } = await supabase
+  const { data: settings, error: settingsError } = await supabase
     .from('proctoring_test_settings')
     .select('*')
     .eq('test_id', testId)
     .maybeSingle();
 
+  if (settingsError && isMissingSupabaseTableError(settingsError)) return DEFAULT_PROCTORING_SETTINGS;
   if (!settings) return DEFAULT_PROCTORING_SETTINGS;
 
   let effective: ProctoringSettings = {
@@ -37,13 +39,19 @@ export async function loadEffectiveProctoringSettings(testId: string, userId?: s
   };
 
   if (userId) {
-    const { data: override } = await supabase
+    const { data: override, error: overrideError } = await supabase
       .from('proctoring_user_overrides')
       .select('*')
       .eq('test_id', testId)
       .eq('user_id', userId)
       .maybeSingle();
 
+    if (overrideError && isMissingSupabaseTableError(overrideError)) {
+      return {
+        ...effective,
+        allowed: !effective.allow_specific_users_only,
+      };
+    }
     if (effective.allow_specific_users_only && !override) effective.allowed = false;
     if (override) {
       effective = {

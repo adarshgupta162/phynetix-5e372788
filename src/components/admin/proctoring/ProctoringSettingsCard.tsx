@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import type { ProctoringSettings } from '@/lib/proctoring/types';
 import { DEFAULT_PROCTORING_SETTINGS } from '@/lib/proctoring/settings';
+import { isMissingSupabaseTableError } from '@/lib/supabase/errors';
 
 type UserOverride = {
   id?: string;
@@ -39,7 +40,7 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
   const load = async () => {
     const { data, error } = await supabase.from('proctoring_test_settings').select('*').eq('test_id', testId).maybeSingle();
     if (error) {
-      if ((error as any).code === '42P01') {
+      if (isMissingSupabaseTableError(error)) {
         toast({ title: 'Monitoring setup required', description: missingSchemaMessage, variant: 'destructive' });
       }
       return;
@@ -65,7 +66,7 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
       .eq('test_id', testId)
       .order('created_at', { ascending: false });
     if (overrideError) {
-      if ((overrideError as any).code === '42P01') {
+      if (isMissingSupabaseTableError(overrideError)) {
         toast({ title: 'Monitoring setup required', description: missingSchemaMessage, variant: 'destructive' });
       }
       return;
@@ -99,7 +100,7 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
     }, { onConflict: 'test_id' });
     setSaving(false);
     if (error) {
-      const description = (error as any).code === '42P01' ? missingSchemaMessage : error.message;
+      const description = isMissingSupabaseTableError(error) ? missingSchemaMessage : error.message;
       toast({ title: 'Failed to save monitoring settings', description, variant: 'destructive' });
     }
     else toast({ title: 'Live monitoring settings saved' });
@@ -116,7 +117,10 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
       created_by: userData.user?.id,
       updated_by: userData.user?.id,
     }, { onConflict: 'test_id,user_id' });
-    if (error) toast({ title: 'Failed to add user override', description: error.message, variant: 'destructive' });
+    if (error) {
+      const description = isMissingSupabaseTableError(error) ? missingSchemaMessage : error.message;
+      toast({ title: 'Failed to add user override', description, variant: 'destructive' });
+    }
     else {
       setNewUserId('');
       await load();
@@ -125,11 +129,16 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
   };
 
   const updateOverride = async (override: UserOverride, updates: Partial<UserOverride>) => {
-    await supabase
+    const { error } = await supabase
       .from('proctoring_user_overrides')
       .update(updates)
       .eq('test_id', testId)
       .eq('user_id', override.user_id);
+    if (error) {
+      const description = isMissingSupabaseTableError(error) ? missingSchemaMessage : error.message;
+      toast({ title: 'Failed to update user override', description, variant: 'destructive' });
+      return;
+    }
     setOverrides((items) => items.map((item) => item.user_id === override.user_id ? { ...item, ...updates } : item));
   };
 
