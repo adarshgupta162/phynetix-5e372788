@@ -53,6 +53,9 @@ const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
   proctoring_user_overrides: ["id", "test_id", "user_id", "allowed"],
   proctoring_sessions: ["id", "attempt_id", "test_id", "user_id", "status", "provider_room_name", "last_heartbeat_at"],
   proctoring_events: ["id", "session_id", "attempt_id", "event_type", "created_at"],
+  proctoring_alerts: ["id", "session_id", "attempt_id", "alert_type", "severity", "status", "created_at"],
+  proctoring_recordings: ["id", "session_id", "attempt_id", "provider", "created_at"],
+  monitoring_permissions: ["id", "session_id", "attempt_id", "camera_granted", "screen_granted", "created_at"],
 };
 
 const REQUIRED_MIGRATIONS = [
@@ -60,6 +63,7 @@ const REQUIRED_MIGRATIONS = [
   "20260510100500_fix_proctoring_settings_table_compat.sql",
   "20260510113000_fix_proctoring_user_overrides_compat.sql",
   "20260510140000_repair_live_monitoring_schema.sql",
+  "20260510153000_complete_monitoring_schema_recovery.sql",
 ];
 
 const PROCTORING_SCHEMA_CACHE_TTL_MS = 30_000;
@@ -68,6 +72,8 @@ type ProctoringSchemaDiagnostics = {
   checked_at: string;
   missing_tables: string[];
   missing_columns: Record<string, string[]>;
+  missing_realtime_tables: string[];
+  missing_functions: string[];
   stale_migrations: string[];
 };
 
@@ -88,12 +94,22 @@ const missingColumnFromError = (error: SupabaseErrorLike | null | undefined) => 
 const buildProctoringSchemaDiagnostics = (
   missingTables: string[],
   missingColumns: Record<string, string[]>,
+  missingRealtimeTables: string[] = [],
+  missingFunctions: string[] = [],
 ): ProctoringSchemaDiagnostics => ({
   checked_at: new Date().toISOString(),
   missing_tables: missingTables,
   missing_columns: missingColumns,
-  stale_migrations: missingTables.length || Object.keys(missingColumns).length ? REQUIRED_MIGRATIONS : [],
+  missing_realtime_tables: missingRealtimeTables,
+  missing_functions: missingFunctions,
+  stale_migrations: missingTables.length || Object.keys(missingColumns).length || missingRealtimeTables.length || missingFunctions.length ? REQUIRED_MIGRATIONS : [],
 });
+
+const hasSchemaIssues = (diagnostics: ProctoringSchemaDiagnostics) =>
+  diagnostics.missing_tables.length > 0
+  || Object.keys(diagnostics.missing_columns).length > 0
+  || diagnostics.missing_realtime_tables.length > 0
+  || diagnostics.missing_functions.length > 0;
 
 export const validateProctoringSchema = async (
   supabaseAdmin: ReturnType<typeof getAdminClient>,
@@ -102,6 +118,23 @@ export const validateProctoringSchema = async (
   const now = Date.now();
   if (!forceRefresh && schemaHealthCache && (now - schemaHealthCache.checkedAtMs) < PROCTORING_SCHEMA_CACHE_TTL_MS) {
     return schemaHealthCache.value;
+  }
+
+  const { data: rpcDiagnostics, error: rpcError } = await supabaseAdmin.rpc("proctoring_schema_health");
+  if (!rpcError && rpcDiagnostics && typeof rpcDiagnostics === "object") {
+    const diagnostics = buildProctoringSchemaDiagnostics(
+      Array.isArray((rpcDiagnostics as Record<string, unknown>).missing_tables) ? (rpcDiagnostics as { missing_tables: string[] }).missing_tables : [],
+      (rpcDiagnostics as { missing_columns?: Record<string, string[]> }).missing_columns ?? {},
+      Array.isArray((rpcDiagnostics as Record<string, unknown>).missing_realtime_tables) ? (rpcDiagnostics as { missing_realtime_tables: string[] }).missing_realtime_tables : [],
+      Array.isArray((rpcDiagnostics as Record<string, unknown>).missing_functions) ? (rpcDiagnostics as { missing_functions: string[] }).missing_functions : [],
+    );
+
+    const value: ProctoringSchemaHealth = {
+      ready: !hasSchemaIssues(diagnostics),
+      diagnostics: hasSchemaIssues(diagnostics) ? diagnostics : null,
+    };
+    schemaHealthCache = { checkedAtMs: now, value };
+    return value;
   }
 
   const missingTables = new Set<string>();
@@ -138,11 +171,13 @@ export const validateProctoringSchema = async (
   const diagnostics = buildProctoringSchemaDiagnostics(
     Array.from(missingTables).sort(),
     Object.fromEntries(Array.from(missingColumns.entries()).map(([table, columns]) => [table, Array.from(columns).sort()])),
+    [],
+    rpcError ? ["proctoring_schema_health"] : [],
   );
 
   const value: ProctoringSchemaHealth = {
-    ready: diagnostics.missing_tables.length === 0 && Object.keys(diagnostics.missing_columns).length === 0,
-    diagnostics: diagnostics.missing_tables.length || Object.keys(diagnostics.missing_columns).length ? diagnostics : null,
+    ready: !hasSchemaIssues(diagnostics),
+    diagnostics: hasSchemaIssues(diagnostics) ? diagnostics : null,
   };
 
   schemaHealthCache = { checkedAtMs: now, value };
