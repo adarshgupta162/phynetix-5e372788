@@ -26,6 +26,7 @@ import {
   Search,
   Command as CmdIcon,
   Building2,
+  Video,
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
@@ -70,6 +71,7 @@ const allNavSections = {
       items: [
         { icon: FileText, label: "PDF Tests", path: "/admin/pdf-tests" },
         { icon: ClipboardList, label: "Tests", path: "/admin/tests" },
+        { icon: Video, label: "Live Monitoring", path: "/admin/live-monitoring" },
         { icon: BookOpen, label: "Question Bank", path: "/admin/question-bank" },
         { icon: Library, label: "PhyNetix Library", path: "/admin/phynetix-library" },
         { icon: Upload, label: "Bulk Import", path: "/admin/bulk-import" },
@@ -96,6 +98,7 @@ const allNavSections = {
       items: [
         { icon: FileText, label: "PDF Tests", path: "/admin/pdf-tests" },
         { icon: ClipboardList, label: "Tests", path: "/admin/tests" },
+        { icon: Video, label: "Live Monitoring", path: "/admin/live-monitoring" },
         { icon: BookOpen, label: "Question Bank", path: "/admin/question-bank" },
         { icon: Library, label: "PhyNetix Library", path: "/admin/phynetix-library" },
       ],

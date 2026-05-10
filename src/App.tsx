@@ -68,6 +68,7 @@ import BatchManagement from "./pages/admin/BatchManagement";
 import RoleSelectorPage from "./pages/admin/RoleSelectorPage";
 import BulkImportPage from "./pages/admin/BulkImportPage";
 import InstitutionsManager from "./pages/admin/InstitutionsManager";
+import LiveMonitoring from "./pages/admin/LiveMonitoring";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -133,6 +134,7 @@ const App = () => (
                 <Route path="/admin/batches" element={<AdminRoute><BatchManagement /></AdminRoute>} />
                 <Route path="/admin/question-bank" element={<AdminRoute><AdminQuestionBank /></AdminRoute>} />
                 <Route path="/admin/tests" element={<AdminRoute><AdminTests /></AdminRoute>} />
+                <Route path="/admin/live-monitoring" element={<AdminRoute><LiveMonitoring /></AdminRoute>} />
                 <Route path="/admin/test-creator" element={<AdminRoute><TestCreator /></AdminRoute>} />
                 <Route path="/admin/test-editor/:testId" element={<AdminRoute><TestEditor /></AdminRoute>} />
                 <Route path="/admin/test-analytics/:testId" element={<AdminRoute><NormalTestAnalytics /></AdminRoute>} />

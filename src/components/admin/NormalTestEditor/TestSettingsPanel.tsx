@@ -4,6 +4,7 @@ import {
   Copy, Trash2, Archive, RotateCcw, AlertTriangle 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ProctoringSettingsCard } from "@/components/admin/proctoring/ProctoringSettingsCard";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -148,6 +149,8 @@ export function TestSettingsPanel({
               />
             </div>
           </div>
+
+          <ProctoringSettingsCard testId={test.id} />
 
           {/* Test Info */}
           <div className="bg-secondary/30 rounded-lg p-4 space-y-2">

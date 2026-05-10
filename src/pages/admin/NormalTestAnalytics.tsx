@@ -245,7 +245,7 @@ export default function NormalTestAnalytics() {
   }, [attempts]);
 
   const filteredAttempts = useMemo(() => {
-    let filtered = attempts.filter(a => 
+    const filtered = attempts.filter(a =>
       a.profile?.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       a.profile?.roll_number?.toLowerCase().includes(searchQuery.toLowerCase())
     );

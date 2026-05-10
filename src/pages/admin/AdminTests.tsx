@@ -12,7 +12,8 @@ import {
   FileQuestion,
   ChevronLeft,
   ChevronRight,
-  BarChart3
+  BarChart3,
+  Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +37,7 @@ const TESTS_PER_PAGE = 15;
 export default function AdminTests() {
   const [tests, setTests] = useState<Test[]>([]);
   const [questionCounts, setQuestionCounts] = useState<Record<string, number>>({});
+  const [monitoringEnabled, setMonitoringEnabled] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -68,6 +70,12 @@ export default function AdminTests() {
         counts[test.id] = count || 0;
       }
       setQuestionCounts(counts);
+
+      const { data: monitoringData } = await supabase
+        .from('proctoring_test_settings')
+        .select('test_id, enabled')
+        .in('test_id', testsData.map((test) => test.id));
+      setMonitoringEnabled(Object.fromEntries((monitoringData || []).map((item) => [item.test_id, !!item.enabled])));
     }
     
     setIsLoading(false);
@@ -212,6 +220,11 @@ export default function AdminTests() {
                       ) : (
                         <span className="px-2 py-1 rounded-md bg-secondary text-muted-foreground text-xs">
                           Draft
+                        </span>
+                      )}
+                      {monitoringEnabled[test.id] && (
+                        <span className="px-2 py-1 rounded-md bg-red-500/10 text-red-600 text-xs font-medium flex items-center gap-1">
+                          <Shield className="w-3 h-3" /> Monitored
                         </span>
                       )}
                     </div>
