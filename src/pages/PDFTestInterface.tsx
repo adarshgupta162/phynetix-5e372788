@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -11,8 +11,7 @@ import FullscreenGuard from '@/components/test/FullscreenGuard';
 import AccessibilityToolbar from '@/components/test/AccessibilityToolbar';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { FileText, AlertTriangle, Play, Clock, Camera, Mic, MonitorPlay } from 'lucide-react';
-import { useProctoringSession } from '@/hooks/useProctoringSession';
+import { FileText, AlertTriangle, Play, Clock } from 'lucide-react';
 
 interface Question {
   id: string;
@@ -43,11 +42,6 @@ interface TestData {
   fullscreen_enabled: boolean;
   answer_key_uploaded: boolean;
   scheduled_at: string | null;
-  proctoring_enabled?: boolean | null;
-  proctoring_provider?: string | null;
-  proctoring_require_camera?: boolean | null;
-  proctoring_require_mic?: boolean | null;
-  proctoring_require_screen?: boolean | null;
 }
 
 interface ExistingAttempt {
@@ -84,15 +78,6 @@ export default function PDFTestInterface() {
   const [fullscreenExitCount, setFullscreenExitCount] = useState(0);
   const [activeSection, setActiveSection] = useState<string>('');
   const [targetPdfPage, setTargetPdfPage] = useState<number | undefined>();
-  const [proctoringEnabled, setProctoringEnabled] = useState(false);
-  const [proctoringProvider, setProctoringProvider] = useState('webrtc');
-  const [requireCamera, setRequireCamera] = useState(false);
-  const [requireMic, setRequireMic] = useState(false);
-  const [requireScreen, setRequireScreen] = useState(false);
-  const [proctoringSetupOpen, setProctoringSetupOpen] = useState(false);
-  const [proctoringStartRequested, setProctoringStartRequested] = useState(false);
-  const [proctoringOptions, setProctoringOptions] = useState({ camera: false, mic: false, screen: false });
-  const [proctoringPendingAction, setProctoringPendingAction] = useState<'start' | 'resume' | null>(null);
 
   // Instructions state
   const [agreedToInstructions, setAgreedToInstructions] = useState(false);
@@ -102,13 +87,6 @@ export default function PDFTestInterface() {
   const [studentName, setStudentName] = useState('');
   const [targetExam, setTargetExam] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>();
-
-  const { state: proctoringState, startSession, endSession, logEvent } = useProctoringSession({
-    testId: testId || null,
-    attemptId,
-    enabled: proctoringEnabled,
-    requirements: { requireCamera, requireMic, requireScreen },
-  });
 
   // Generate roll number
   const generateRollNumber = useCallback(() => {
@@ -132,20 +110,6 @@ export default function PDFTestInterface() {
       }
     }
   }, [currentQuestion, phase, questions]);
-
-  useEffect(() => {
-    if (phase !== 'test' || proctoringState.status !== 'active' || !questions[currentQuestion]) return;
-    void logEvent('question_view', {
-      question_id: questions[currentQuestion].id,
-      question_number: questions[currentQuestion].question_number,
-      section_id: questions[currentQuestion].section_id,
-    });
-  }, [currentQuestion, logEvent, phase, proctoringState.status, questions]);
-
-  useEffect(() => {
-    if (phase !== 'test' || proctoringState.status !== 'active' || !activeSection) return;
-    void logEvent('section_change', { section_id: activeSection });
-  }, [activeSection, logEvent, phase, proctoringState.status]);
 
   // Initialize test
   useEffect(() => {
@@ -178,20 +142,6 @@ export default function PDFTestInterface() {
           fullscreen_enabled: test.fullscreen_enabled ?? true,
           answer_key_uploaded: test.answer_key_uploaded ?? true,
           scheduled_at: test.scheduled_at
-        });
-
-        setProctoringEnabled(test.proctoring_enabled ?? false);
-        setProctoringProvider(test.proctoring_provider ?? 'webrtc');
-        const nextRequireCamera = test.proctoring_require_camera ?? false;
-        const nextRequireMic = test.proctoring_require_mic ?? false;
-        const nextRequireScreen = test.proctoring_require_screen ?? false;
-        setRequireCamera(nextRequireCamera);
-        setRequireMic(nextRequireMic);
-        setRequireScreen(nextRequireScreen);
-        setProctoringOptions({
-          camera: nextRequireCamera,
-          mic: nextRequireMic,
-          screen: nextRequireScreen,
         });
 
         // Check for existing incomplete attempt
@@ -342,45 +292,6 @@ export default function PDFTestInterface() {
     fetchProfile();
   }, [user]);
 
-  useEffect(() => {
-    if (!proctoringStartRequested || !attemptId || !proctoringEnabled) return;
-    const run = async () => {
-      const ok = await startSession(proctoringOptions);
-      setProctoringStartRequested(false);
-      if (!ok && (requireCamera || requireMic || requireScreen)) {
-        toast({ title: 'Monitoring required', description: 'Required permissions were not granted.', variant: 'destructive' });
-      }
-    };
-    void run();
-  }, [attemptId, proctoringEnabled, proctoringOptions, proctoringStartRequested, requireCamera, requireMic, requireScreen, startSession, toast]);
-
-  useEffect(() => {
-    if (proctoringState.status === 'active') {
-      void logEvent('monitoring_started', { provider: proctoringProvider });
-    }
-  }, [logEvent, proctoringProvider, proctoringState.status]);
-
-  useEffect(() => {
-    if (proctoringState.status !== 'active') return;
-    const handleBlur = () => void logEvent('window_blur', {});
-    const handleFocus = () => void logEvent('window_focus', {});
-    const handleVisibility = () => void logEvent('visibility_change', { hidden: document.hidden });
-    window.addEventListener('blur', handleBlur);
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => {
-      window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [logEvent, proctoringState.status]);
-
-  useEffect(() => {
-    return () => {
-      void endSession();
-    };
-  }, [endSession]);
-
   const autoSubmitExpiredTest = async (attemptId: string, savedAnswers: Record<string, any>, totalSeconds: number) => {
     try {
       setPhase('submitting');
@@ -396,7 +307,6 @@ export default function PDFTestInterface() {
       if (error) throw error;
 
       toast({ title: 'Test auto-submitted', description: 'Time expired' });
-      await endSession();
       navigate(`/test/${testId}/detailed-analysis?attemptId=${attemptId}`);
     } catch (err: any) {
       console.error('Error auto-submitting:', err);
@@ -436,23 +346,16 @@ export default function PDFTestInterface() {
     }
   };
 
-  const beginTest = () => {
-    setPhase('test');
-  };
-
-  const performResumeTest = async () => {
+  const resumeTest = async () => {
     if (!existingAttempt) return;
     setAttemptId(existingAttempt.id);
     setAnswers(existingAttempt.answers || {});
     setRollNumber(existingAttempt.roll_number || generateRollNumber());
     setFullscreenExitCount(existingAttempt.fullscreen_exit_count || 0);
-    if (proctoringEnabled) {
-      setProctoringStartRequested(true);
-    }
-    beginTest();
+    setPhase('test');
   };
 
-  const performStartTest = async () => {
+  const startTest = async () => {
     if (!testId || !user) return;
 
     try {
@@ -469,53 +372,11 @@ export default function PDFTestInterface() {
         .update({ roll_number: rollNumber })
         .eq('id', data.attempt_id);
 
-      if (proctoringEnabled) {
-        setProctoringStartRequested(true);
-      }
-      beginTest();
+      setPhase('test');
     } catch (err: any) {
       console.error('Error starting test:', err);
       toast({ title: 'Error starting test', description: err.message, variant: 'destructive' });
     }
-  };
-
-  const resumeTest = async () => {
-    if (proctoringEnabled && proctoringState.status !== 'active') {
-      setProctoringPendingAction('resume');
-      setProctoringSetupOpen(true);
-      return;
-    }
-    await performResumeTest();
-  };
-
-  const startTest = async () => {
-    if (!testId || !user) return;
-    if (!agreedToInstructions) {
-      toast({ title: 'Please agree to the instructions', variant: 'destructive' });
-      return;
-    }
-    if (proctoringEnabled && proctoringState.status !== 'active') {
-      setProctoringPendingAction('start');
-      setProctoringSetupOpen(true);
-      return;
-    }
-    await performStartTest();
-  };
-
-  const handleProctoringContinue = async () => {
-    setProctoringSetupOpen(false);
-    const action = proctoringPendingAction;
-    setProctoringPendingAction(null);
-    if (action === 'start') {
-      await performStartTest();
-    } else if (action === 'resume') {
-      await performResumeTest();
-    }
-  };
-
-  const handleProctoringCancel = () => {
-    setProctoringSetupOpen(false);
-    setProctoringPendingAction(null);
   };
 
   // Auto-save
@@ -598,7 +459,6 @@ export default function PDFTestInterface() {
         }
 
         toast({ title: 'Test submitted!', description: 'Results will be available once answer key is uploaded.' });
-        await endSession();
         navigate('/tests');
         return;
       }
@@ -618,14 +478,13 @@ export default function PDFTestInterface() {
       }
 
       toast({ title: 'Test submitted successfully!' });
-      await endSession();
       navigate(`/test/${testId}/detailed-analysis?attemptId=${attemptId}`);
     } catch (err: any) {
       console.error('Error submitting test:', err);
       toast({ title: 'Error submitting test', description: err.message, variant: 'destructive' });
       setPhase('test');
     }
-  }, [attemptId, answers, timeLeft, testData, testId, navigate, toast, phase, endSession]);
+  }, [attemptId, answers, timeLeft, testData, testId, navigate, toast, phase]);
 
   const handleMaxExitsReached = useCallback(() => {
     toast({
@@ -645,10 +504,7 @@ export default function PDFTestInterface() {
         .update({ fullscreen_exit_count: count })
         .eq('id', attemptId);
     }
-    if (proctoringState.status === 'active') {
-      void logEvent('fullscreen_exit', { count });
-    }
-  }, [attemptId, logEvent, proctoringState.status]);
+  }, [attemptId]);
 
   const handleNext = useCallback(() => {
     if (currentQuestion < questions.length - 1) {
@@ -679,63 +535,6 @@ export default function PDFTestInterface() {
     const secs = seconds % 60;
     return `${mins}m ${secs}s`;
   };
-
-  const renderProctoringModal = () => (
-    <AnimatePresence>
-      {proctoringSetupOpen && proctoringEnabled && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60"
-          onClick={handleProctoringCancel}
-        >
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.95, opacity: 0 }}
-            onClick={(e) => e.stopPropagation()}
-            className="w-[460px] max-w-[92vw] rounded-lg border border-border bg-background p-5 shadow-xl"
-          >
-            <div className="border-b border-border pb-2 text-base font-semibold text-foreground">
-              Live Monitoring Setup
-            </div>
-            <p className="mt-3 text-sm text-muted-foreground">
-              This test uses live monitoring. Please grant the required permissions before starting.
-            </p>
-            <div className="mt-4 flex flex-col gap-3 text-sm text-foreground">
-              {[
-                { key: 'camera', label: 'Camera', required: requireCamera, icon: <Camera size={14} /> },
-                { key: 'mic', label: 'Microphone', required: requireMic, icon: <Mic size={14} /> },
-                { key: 'screen', label: 'Screen Share', required: requireScreen, icon: <MonitorPlay size={14} /> },
-              ].map((item) => (
-                <label key={item.key} className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={proctoringOptions[item.key as keyof typeof proctoringOptions]}
-                    onChange={(e) => setProctoringOptions((prev) => ({ ...prev, [item.key]: e.target.checked }))}
-                    disabled={item.required}
-                  />
-                  <span className="flex items-center gap-2">
-                    {item.icon}
-                    {item.label} {item.required && <strong>(Required)</strong>}
-                  </span>
-                </label>
-              ))}
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button variant="outline" onClick={handleProctoringCancel}>
-                Cancel
-              </Button>
-              <Button onClick={handleProctoringContinue}>
-                Grant Permissions &amp; Start
-              </Button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
 
   // Loading phase
   if (phase === 'loading') {
@@ -800,7 +599,6 @@ export default function PDFTestInterface() {
             </Button>
           </motion.div>
         </div>
-        {renderProctoringModal()}
       </div>
     );
   }
@@ -896,7 +694,6 @@ export default function PDFTestInterface() {
             )}
           </motion.div>
         </div>
-        {renderProctoringModal()}
       </div>
     );
   }

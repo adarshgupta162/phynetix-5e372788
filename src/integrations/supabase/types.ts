@@ -980,189 +980,6 @@ export type Database = {
         }
         Relationships: []
       }
-      proctoring_allowlist: {
-        Row: {
-          created_at: string
-          id: string
-          is_allowed: boolean
-          require_camera: boolean | null
-          require_mic: boolean | null
-          require_screen: boolean | null
-          test_id: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          is_allowed?: boolean
-          require_camera?: boolean | null
-          require_mic?: boolean | null
-          require_screen?: boolean | null
-          test_id: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          is_allowed?: boolean
-          require_camera?: boolean | null
-          require_mic?: boolean | null
-          require_screen?: boolean | null
-          test_id?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "proctoring_allowlist_test_id_fkey"
-            columns: ["test_id"]
-            isOneToOne: false
-            referencedRelation: "tests"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      proctoring_events: {
-        Row: {
-          created_at: string
-          event_type: string
-          id: string
-          payload: Json
-          session_id: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          event_type: string
-          id?: string
-          payload?: Json
-          session_id: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          event_type?: string
-          id?: string
-          payload?: Json
-          session_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "proctoring_events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "proctoring_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      proctoring_sessions: {
-        Row: {
-          attempt_id: string
-          camera_enabled: boolean
-          created_at: string
-          ended_at: string | null
-          id: string
-          last_event_at: string | null
-          mic_enabled: boolean
-          provider: string
-          screen_enabled: boolean
-          started_at: string
-          status: string
-          test_id: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          attempt_id: string
-          camera_enabled?: boolean
-          created_at?: string
-          ended_at?: string | null
-          id?: string
-          last_event_at?: string | null
-          mic_enabled?: boolean
-          provider?: string
-          screen_enabled?: boolean
-          started_at?: string
-          status?: string
-          test_id: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          attempt_id?: string
-          camera_enabled?: boolean
-          created_at?: string
-          ended_at?: string | null
-          id?: string
-          last_event_at?: string | null
-          mic_enabled?: boolean
-          provider?: string
-          screen_enabled?: boolean
-          started_at?: string
-          status?: string
-          test_id?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "proctoring_sessions_attempt_id_fkey"
-            columns: ["attempt_id"]
-            isOneToOne: false
-            referencedRelation: "test_attempts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "proctoring_sessions_test_id_fkey"
-            columns: ["test_id"]
-            isOneToOne: false
-            referencedRelation: "tests"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      proctoring_signals: {
-        Row: {
-          created_at: string
-          id: string
-          payload: Json
-          recipient_id: string
-          sender_id: string
-          session_id: string
-          signal_type: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          payload?: Json
-          recipient_id: string
-          sender_id: string
-          session_id: string
-          signal_type: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          payload?: Json
-          recipient_id?: string
-          sender_id?: string
-          session_id?: string
-          signal_type?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "proctoring_signals_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "proctoring_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       qb_attempts: {
         Row: {
           answer: Json
@@ -1850,14 +1667,6 @@ export type Database = {
           is_published: boolean | null
           name: string
           pdf_url: string | null
-          proctoring_allowlist_enabled: boolean | null
-          proctoring_enabled: boolean | null
-          proctoring_provider: string | null
-          proctoring_recording_enabled: boolean | null
-          proctoring_require_camera: boolean | null
-          proctoring_require_mic: boolean | null
-          proctoring_require_screen: boolean | null
-          proctoring_retention_days: number | null
           scheduled_at: string | null
           show_solutions: boolean | null
           solution_reopen_mode: boolean | null
@@ -1877,14 +1686,6 @@ export type Database = {
           is_published?: boolean | null
           name: string
           pdf_url?: string | null
-          proctoring_allowlist_enabled?: boolean | null
-          proctoring_enabled?: boolean | null
-          proctoring_provider?: string | null
-          proctoring_recording_enabled?: boolean | null
-          proctoring_require_camera?: boolean | null
-          proctoring_require_mic?: boolean | null
-          proctoring_require_screen?: boolean | null
-          proctoring_retention_days?: number | null
           scheduled_at?: string | null
           show_solutions?: boolean | null
           solution_reopen_mode?: boolean | null
@@ -1904,14 +1705,6 @@ export type Database = {
           is_published?: boolean | null
           name?: string
           pdf_url?: string | null
-          proctoring_allowlist_enabled?: boolean | null
-          proctoring_enabled?: boolean | null
-          proctoring_provider?: string | null
-          proctoring_recording_enabled?: boolean | null
-          proctoring_require_camera?: boolean | null
-          proctoring_require_mic?: boolean | null
-          proctoring_require_screen?: boolean | null
-          proctoring_retention_days?: number | null
           scheduled_at?: string | null
           show_solutions?: boolean | null
           solution_reopen_mode?: boolean | null

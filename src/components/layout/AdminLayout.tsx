@@ -26,7 +26,6 @@ import {
   Search,
   Command as CmdIcon,
   Building2,
-  MonitorPlay,
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
@@ -85,7 +84,6 @@ const allNavSections = {
         { icon: Building2, label: "Institutions", path: "/admin/institutions" },
         { icon: MessageSquare, label: "Community", path: "/admin/community" },
         { icon: Send, label: "Requests", path: "/admin/requests" },
-        { icon: MonitorPlay, label: "Live Monitoring", path: "/admin/live-monitoring" },
         { icon: History, label: "Audit Logs", path: "/admin/audit-logs" },
         { icon: Settings, label: "Settings", path: "/admin/settings" },
       ],
@@ -103,7 +101,6 @@ const allNavSections = {
       ],
     },
     { title: "Batches", items: [{ icon: Bell, label: "Manage Batches", path: "/admin/batches" }] },
-    { title: "Monitoring", items: [{ icon: MonitorPlay, label: "Live Monitoring", path: "/admin/live-monitoring" }] },
   ],
   operations_admin: [
     { title: "Operations", items: [{ icon: LayoutDashboard, label: "Dashboard", path: "/admin/operations" }] },

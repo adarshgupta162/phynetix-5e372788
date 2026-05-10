@@ -77,14 +77,6 @@ interface TestData {
   fullscreen_enabled: boolean;
   answer_key_uploaded: boolean;
   scheduled_at: string | null;
-  proctoring_enabled?: boolean | null;
-  proctoring_provider?: string | null;
-  proctoring_require_camera?: boolean | null;
-  proctoring_require_mic?: boolean | null;
-  proctoring_require_screen?: boolean | null;
-  proctoring_allowlist_enabled?: boolean | null;
-  proctoring_recording_enabled?: boolean | null;
-  proctoring_retention_days?: number | null;
 }
 
 const MARKING_SCHEMES = {
@@ -120,17 +112,6 @@ export default function PDFTestEditor() {
   const [fullscreenEnabled, setFullscreenEnabled] = useState(true);
   const [answerKeyUploaded, setAnswerKeyUploaded] = useState(true);
   const [scheduledAt, setScheduledAt] = useState<string>("");
-  const [proctoringEnabled, setProctoringEnabled] = useState(false);
-  const [proctoringProvider, setProctoringProvider] = useState("webrtc");
-  const [requireCamera, setRequireCamera] = useState(false);
-  const [requireMic, setRequireMic] = useState(false);
-  const [requireScreen, setRequireScreen] = useState(false);
-  const [allowlistEnabled, setAllowlistEnabled] = useState(false);
-  const [recordingEnabled, setRecordingEnabled] = useState(false);
-  const [retentionDays, setRetentionDays] = useState(0);
-  const [allowlistEntries, setAllowlistEntries] = useState<{ id: string; user_id: string; full_name: string | null; roll_number: string | null }[]>([]);
-  const [allowlistUserId, setAllowlistUserId] = useState("");
-  const [allowlistLoading, setAllowlistLoading] = useState(false);
 
   // New subject/section dialogs
   const [showAddSubject, setShowAddSubject] = useState(false);
@@ -165,14 +146,6 @@ export default function PDFTestEditor() {
       setFullscreenEnabled(testData.fullscreen_enabled ?? true);
       setAnswerKeyUploaded(testData.answer_key_uploaded ?? true);
       setScheduledAt(testData.scheduled_at || "");
-      setProctoringEnabled(testData.proctoring_enabled ?? false);
-      setProctoringProvider(testData.proctoring_provider ?? "webrtc");
-      setRequireCamera(testData.proctoring_require_camera ?? false);
-      setRequireMic(testData.proctoring_require_mic ?? false);
-      setRequireScreen(testData.proctoring_require_screen ?? false);
-      setAllowlistEnabled(testData.proctoring_allowlist_enabled ?? false);
-      setRecordingEnabled(testData.proctoring_recording_enabled ?? false);
-      setRetentionDays(testData.proctoring_retention_days ?? 0);
 
       if (testData.pdf_url) {
         const { data: urlData } = await supabase.storage
@@ -228,65 +201,11 @@ export default function PDFTestEditor() {
           setExpandedSections(new Set([subjectsWithData[0].sections[0].id]));
         }
       }
-      await fetchAllowlist(testData.id);
     } catch (err: any) {
       toast({ title: "Error loading test", description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  };
-
-  const fetchAllowlist = async (activeTestId: string) => {
-    setAllowlistLoading(true);
-    const { data: allowlist } = await supabase
-      .from("proctoring_allowlist")
-      .select("id, user_id, is_allowed")
-      .eq("test_id", activeTestId)
-      .eq("is_allowed", true);
-
-    const ids = (allowlist || []).map((entry) => entry.user_id);
-    const { data: profiles } = ids.length > 0
-      ? await supabase.from("profiles").select("id, full_name, roll_number").in("id", ids)
-      : { data: [] };
-
-    const profileMap = new Map((profiles || []).map((p) => [p.id, p]));
-    setAllowlistEntries((allowlist || []).map((entry) => ({
-      id: entry.id,
-      user_id: entry.user_id,
-      full_name: profileMap.get(entry.user_id)?.full_name ?? null,
-      roll_number: profileMap.get(entry.user_id)?.roll_number ?? null,
-    })));
-    setAllowlistLoading(false);
-  };
-
-  const handleAddAllowlist = async () => {
-    if (!test || !allowlistUserId.trim()) return;
-    const { error } = await supabase
-      .from("proctoring_allowlist")
-      .upsert({
-        test_id: test.id,
-        user_id: allowlistUserId.trim(),
-        is_allowed: true,
-      }, { onConflict: "test_id,user_id" });
-    if (error) {
-      toast({ title: "Failed to add user", description: error.message, variant: "destructive" });
-      return;
-    }
-    setAllowlistUserId("");
-    await fetchAllowlist(test.id);
-  };
-
-  const handleRemoveAllowlist = async (id: string) => {
-    if (!test) return;
-    const { error } = await supabase
-      .from("proctoring_allowlist")
-      .delete()
-      .eq("id", id);
-    if (error) {
-      toast({ title: "Failed to remove user", description: error.message, variant: "destructive" });
-      return;
-    }
-    await fetchAllowlist(test.id);
   };
 
   const saveSettings = async () => {
@@ -298,15 +217,7 @@ export default function PDFTestEditor() {
         .update({
           fullscreen_enabled: fullscreenEnabled,
           answer_key_uploaded: answerKeyUploaded,
-          scheduled_at: scheduledAt || null,
-          proctoring_enabled: proctoringEnabled,
-          proctoring_provider: proctoringProvider,
-          proctoring_require_camera: requireCamera,
-          proctoring_require_mic: requireMic,
-          proctoring_require_screen: requireScreen,
-          proctoring_allowlist_enabled: allowlistEnabled,
-          proctoring_recording_enabled: recordingEnabled,
-          proctoring_retention_days: retentionDays,
+          scheduled_at: scheduledAt || null
         })
         .eq("id", test.id);
 
@@ -316,15 +227,7 @@ export default function PDFTestEditor() {
         ...test,
         fullscreen_enabled: fullscreenEnabled,
         answer_key_uploaded: answerKeyUploaded,
-        scheduled_at: scheduledAt || null,
-        proctoring_enabled: proctoringEnabled,
-        proctoring_provider: proctoringProvider,
-        proctoring_require_camera: requireCamera,
-        proctoring_require_mic: requireMic,
-        proctoring_require_screen: requireScreen,
-        proctoring_allowlist_enabled: allowlistEnabled,
-        proctoring_recording_enabled: recordingEnabled,
-        proctoring_retention_days: retentionDays,
+        scheduled_at: scheduledAt || null
       });
 
       toast({ title: "Settings saved" });
@@ -794,120 +697,6 @@ export default function PDFTestEditor() {
                       <p className="text-xs text-muted-foreground">
                         Test will be available only after this time
                       </p>
-                    </div>
-
-                    <div className="pt-4 border-t border-border space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Live Monitoring</Label>
-                          <p className="text-xs text-muted-foreground">Enable camera/screen/mic monitoring</p>
-                        </div>
-                        <Switch
-                          checked={proctoringEnabled}
-                          onCheckedChange={setProctoringEnabled}
-                        />
-                      </div>
-
-                      {proctoringEnabled && (
-                        <div className="space-y-4 rounded-lg border border-border bg-secondary/20 p-3">
-                          <div className="space-y-2">
-                            <Label>Streaming Provider</Label>
-                            <select
-                              value={proctoringProvider}
-                              onChange={(e) => setProctoringProvider(e.target.value)}
-                              className="h-11 w-full px-3 rounded-lg border border-border bg-background text-foreground"
-                            >
-                              <option value="webrtc">WebRTC (built-in)</option>
-                              <option value="livekit" disabled>LiveKit (coming soon)</option>
-                              <option value="twilio" disabled>Twilio (coming soon)</option>
-                              <option value="agora" disabled>Agora (coming soon)</option>
-                            </select>
-                          </div>
-
-                          <div className="grid gap-3">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <Label>Require Camera</Label>
-                                <p className="text-xs text-muted-foreground">Block test start if camera not granted</p>
-                              </div>
-                              <Switch checked={requireCamera} onCheckedChange={setRequireCamera} />
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <Label>Require Microphone</Label>
-                                <p className="text-xs text-muted-foreground">Block test start if mic not granted</p>
-                              </div>
-                              <Switch checked={requireMic} onCheckedChange={setRequireMic} />
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <Label>Require Screen Share</Label>
-                                <p className="text-xs text-muted-foreground">Block test start if screen not granted</p>
-                              </div>
-                              <Switch checked={requireScreen} onCheckedChange={setRequireScreen} />
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <Label>Allowlist Only</Label>
-                              <p className="text-xs text-muted-foreground">Enable monitoring only for selected users</p>
-                            </div>
-                            <Switch checked={allowlistEnabled} onCheckedChange={setAllowlistEnabled} />
-                          </div>
-
-                          {allowlistEnabled && (
-                            <div className="space-y-3 rounded-md border border-border bg-background p-3">
-                              <Label>Allowlisted Users</Label>
-                              <div className="flex gap-2">
-                                <Input
-                                  value={allowlistUserId}
-                                  onChange={(e) => setAllowlistUserId(e.target.value)}
-                                  placeholder="Enter user UUID"
-                                />
-                                <Button type="button" onClick={handleAddAllowlist}>Add</Button>
-                              </div>
-                              {allowlistLoading ? (
-                                <p className="text-xs text-muted-foreground">Loading allowlist...</p>
-                              ) : allowlistEntries.length === 0 ? (
-                                <p className="text-xs text-muted-foreground">No users in allowlist.</p>
-                              ) : (
-                                <div className="space-y-2">
-                                  {allowlistEntries.map((entry) => (
-                                    <div key={entry.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
-                                      <div>
-                                        <div className="font-medium">{entry.full_name || entry.user_id}</div>
-                                        <div className="text-xs text-muted-foreground">
-                                          {entry.roll_number ? `Roll: ${entry.roll_number}` : entry.user_id}
-                                        </div>
-                                      </div>
-                                      <Button variant="outline" size="sm" onClick={() => handleRemoveAllowlist(entry.id)}>Remove</Button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <Label>Recording Enabled</Label>
-                              <p className="text-xs text-muted-foreground">Store session recordings when available</p>
-                            </div>
-                            <Switch checked={recordingEnabled} onCheckedChange={setRecordingEnabled} />
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label>Retention (days)</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              value={retentionDays}
-                              onChange={(e) => setRetentionDays(parseInt(e.target.value) || 0)}
-                            />
-                          </div>
-                        </div>
-                      )}
                     </div>
 
                     <Button onClick={saveSettings} className="w-full">

@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import Papa from "papaparse";
+import * as XLSX from "xlsx";
+import { unzipSync, zipSync, strToU8, strFromU8 } from "fflate";
 import { JEE_SYLLABUS } from "@/lib/jeeData";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -105,7 +107,9 @@ function mapRowToQuestion(row: Record<string, string>, userId: string) {
   };
 }
 
-function buildTemplateRows(): Record<string, string>[] {
+function buildTemplateWorkbook(): XLSX.WorkBook {
+  const wb = XLSX.utils.book_new();
+
   const subjects = Object.keys(JEE_SYLLABUS);
   const allChaptersBySubject: Record<string, string[]> = {};
   const allTopicsSet = new Set<string>();
@@ -117,105 +121,224 @@ function buildTemplateRows(): Record<string, string>[] {
     }
   }
   const allTopics = Array.from(allTopicsSet).sort();
-  const subjectList = subjects.join(" | ");
-  const typeList = VALID_TYPES.join(" | ");
-  const difficultyList = VALID_DIFFICULTIES.join(" | ");
-  const topicPreview = allTopics.slice(0, 12).join(" | ");
-  const chapterPreview = Object.entries(allChaptersBySubject)
-    .map(([subject, chapters]) => `${subject}: ${chapters.slice(0, 5).join(", ")}${chapters.length > 5 ? "..." : ""}`)
-    .join(" || ");
 
-  return [
-    {
-      subject: "Physics",
-      chapter: "Kinematics",
-      topic: "Projectile Motion",
-      question_text: "A ball is thrown vertically upward with velocity 20 m/s. Find max height. (g=10 m/s²)",
-      option_1: "20 m",
-      option_2: "10 m",
-      option_3: "15 m",
-      option_4: "5 m",
-      correct_answer: "1",
-      question_type: "single_correct",
-      marks: "4",
-      negative_marks: "1",
-      difficulty: "medium",
-      time_seconds: "60",
-      solution_text: "Using v²=u²-2gh ⇒ h = u²/(2g) = 400/20 = 20 m",
-      tags: "kinematics,projectile,jee_main",
-      question_image_url: "",
-      solution_image_url: "",
-    },
-    {
-      subject: "Chemistry",
-      chapter: "Atomic Structure",
-      topic: "Quantum Numbers",
-      question_text: "Which of the following are valid quantum number sets for a 3d orbital?",
-      option_1: "n=3, l=2, m=-2",
-      option_2: "n=3, l=0, m=0",
-      option_3: "n=3, l=2, m=+1",
-      option_4: "n=3, l=1, m=0",
-      correct_answer: "1,3",
-      question_type: "multiple_correct",
-      marks: "4",
-      negative_marks: "2",
-      difficulty: "hard",
-      time_seconds: "90",
-      solution_text: "For 3d orbital n=3 and l=2; m can range from -l to +l.",
-      tags: "quantum,jee_adv,conceptual",
-      question_image_url: "",
-      solution_image_url: "",
-    },
-    {
-      subject: "Mathematics",
-      chapter: "Integral Calculus",
-      topic: "Definite Integrals",
-      question_text: "Evaluate $\\int_0^1 2x\\,dx$",
-      option_1: "",
-      option_2: "",
-      option_3: "",
-      option_4: "",
-      correct_answer: "1",
-      question_type: "integer",
-      marks: "4",
-      negative_marks: "0",
-      difficulty: "easy",
-      time_seconds: "45",
-      solution_text: "$\\int_0^1 2x\\,dx = [x^2]_0^1 = 1$",
-      tags: "integral,formula,easy",
-      question_image_url: "",
-      solution_image_url: "",
-    },
-    {
-      subject: "",
-      chapter: "",
-      topic: "",
-      question_text: "Template notes: keep headers unchanged. Subjects=" + subjectList,
-      option_1: "",
-      option_2: "",
-      option_3: "",
-      option_4: "",
-      correct_answer: "",
-      question_type: "Allowed types: " + typeList,
-      marks: "",
-      negative_marks: "",
-      difficulty: "Allowed difficulty: " + difficultyList,
-      time_seconds: "",
-      solution_text: "Topic sample: " + topicPreview + " | Chapter sample: " + chapterPreview,
-      tags: "",
-      question_image_url: "",
-      solution_image_url: "",
-    },
+  // ─── Sheet 1: Instructions ───────────────────────────────────────────
+  const instructions: (string | number)[][] = [
+    ["Phynetix - Bulk Question Import Template"],
+    [""],
+    ["HOW TO USE"],
+    ["1. Fill rows in the 'Questions' sheet using the dropdowns where available."],
+    ["2. Subject, Chapter, Topic, Type and Difficulty cells have dropdown lists."],
+    ["3. Chapter dropdown is FILTERED by Subject — pick subject FIRST, then chapter."],
+    ["4. Do NOT rename, reorder or delete the header row in 'Questions'."],
+    ["5. Save as .xlsx and upload it on the Bulk Import page."],
+    [""],
+    ["COLUMN", "REQUIRED", "ACCEPTED VALUES / NOTES"],
+    ["subject", "Yes", "Dropdown: Physics / Chemistry / Mathematics"],
+    ["chapter", "Recommended", "Dropdown filtered by subject (uses official JEE syllabus)"],
+    ["topic", "No", "Dropdown of all topics from JEE syllabus"],
+    ["question_text", "Yes", "Plain text or LaTeX (KaTeX). e.g. $\\\\int x\\\\,dx$"],
+    ["option_1 .. option_4", "MCQ only", "Required for single_correct / multiple_correct. Leave blank for integer."],
+    ["correct_answer", "Yes", "single_correct: 1|2|3|4   |   multiple_correct: 1,3   |   integer: numeric value"],
+    ["question_type", "Yes", "Dropdown: single_correct / multiple_correct / integer"],
+    ["marks", "No", "Default 4. Any positive number."],
+    ["negative_marks", "No", "Default 1. Set 0 for no negative."],
+    ["difficulty", "No", "Dropdown: easy / medium / hard"],
+    ["time_seconds", "No", "Default 60."],
+    ["solution_text", "No", "Plain text or LaTeX."],
+    ["tags", "No", "Comma-separated tags, e.g. 'jee2023,formula,trick'"],
+    ["question_image_url", "No", "Direct URL to question image (https://...). Or upload after import via the preview table."],
+    ["solution_image_url", "No", "Direct URL to solution image."],
+    [""],
+    ["IMPORTANT — chapter mapping"],
+    ["Use the dropdown chapter values exactly. Free-typed chapters that don't match the syllabus"],
+    ["will still import but show as 'Unmapped' in the library filters."],
   ];
+  const wsI = XLSX.utils.aoa_to_sheet(instructions);
+  wsI["!cols"] = [{ wch: 32 }, { wch: 14 }, { wch: 80 }];
+  wsI["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }];
+  XLSX.utils.book_append_sheet(wb, wsI, "Instructions");
+
+  // ─── Sheet 2: Examples ───────────────────────────────────────────────
+  const exampleHeader = EXPECTED_COLUMNS;
+  const exampleRows: (string | number)[][] = [
+    exampleHeader,
+    [
+      "Physics", "Kinematics", "Projectile Motion",
+      "A ball is thrown vertically upward with velocity 20 m/s. Find max height. (g=10 m/s²)",
+      "20 m", "10 m", "15 m", "5 m",
+      "1", "single_correct", 4, 1, "medium", 60,
+      "Using v²=u²-2gh ⇒ h = u²/(2g) = 400/20 = 20 m",
+      "kinematics,projectile,jee_main",
+    ],
+    [
+      "Chemistry", "Atomic Structure", "Quantum Numbers",
+      "Which of the following are valid quantum number sets for a 3d orbital?",
+      "n=3, l=2, m=-2", "n=3, l=0, m=0", "n=3, l=2, m=+1", "n=3, l=1, m=0",
+      "1,3", "multiple_correct", 4, 2, "hard", 90,
+      "For 3d orbital n=3 and l=2; m can range from -l to +l.",
+      "quantum,jee_adv,conceptual",
+    ],
+    [
+      "Mathematics", "Integral Calculus", "Definite Integrals",
+      "Evaluate $\\int_0^1 2x\\,dx$",
+      "", "", "", "",
+      "1", "integer", 4, 0, "easy", 45,
+      "$\\int_0^1 2x\\,dx = [x^2]_0^1 = 1$",
+      "integral,formula,easy",
+    ],
+  ];
+  const wsE = XLSX.utils.aoa_to_sheet(exampleRows);
+  wsE["!cols"] = exampleHeader.map((c) => ({
+    wch: c === "question_text" || c === "solution_text" ? 50 : c.startsWith("option_") ? 22 : 16,
+  }));
+  XLSX.utils.book_append_sheet(wb, wsE, "Examples");
+
+  // ─── Sheet 3: Questions (the sheet users fill) ───────────────────────
+  const blankRow = EXPECTED_COLUMNS.map(() => "");
+  const questionsSheet: (string | number)[][] = [EXPECTED_COLUMNS];
+  // Pre-add 200 empty rows so dropdowns are present without users having to extend them.
+  for (let i = 0; i < 200; i++) questionsSheet.push([...blankRow]);
+  const wsQ = XLSX.utils.aoa_to_sheet(questionsSheet);
+  wsQ["!cols"] = EXPECTED_COLUMNS.map((c) => ({
+    wch: c === "question_text" || c === "solution_text" ? 45 : c.startsWith("option_") ? 22 : 16,
+  }));
+  XLSX.utils.book_append_sheet(wb, wsQ, "Questions");
+
+  // ─── Sheet 4: Lists (hidden, holds the dropdown source data) ─────────
+  // Layout:
+  //   A: Subjects    B: Physics chapters    C: Chemistry chapters    D: Mathematics chapters
+  //   E: Topics      F: question_types      G: difficulties
+  const maxChapters = Math.max(...subjects.map((s) => allChaptersBySubject[s].length));
+  const maxTopics = allTopics.length;
+  const maxRows = Math.max(maxChapters, maxTopics, subjects.length, 4);
+  const listsAoA: (string | number)[][] = [];
+  listsAoA.push(["Subjects", "Physics", "Chemistry", "Mathematics", "Topics", "Types", "Difficulties"]);
+  for (let i = 0; i < maxRows; i++) {
+    listsAoA.push([
+      subjects[i] || "",
+      allChaptersBySubject["Physics"][i] || "",
+      allChaptersBySubject["Chemistry"][i] || "",
+      allChaptersBySubject["Mathematics"][i] || "",
+      allTopics[i] || "",
+      ["single_correct", "multiple_correct", "integer"][i] || "",
+      ["easy", "medium", "hard"][i] || "",
+    ]);
+  }
+  const wsL = XLSX.utils.aoa_to_sheet(listsAoA);
+  wsL["!cols"] = [{ wch: 16 }, { wch: 36 }, { wch: 36 }, { wch: 36 }, { wch: 32 }, { wch: 18 }, { wch: 14 }];
+  XLSX.utils.book_append_sheet(wb, wsL, "Lists");
+
+  // Hide the Lists sheet (still referenceable by formulas)
+  const sheetIndex = wb.SheetNames.indexOf("Lists");
+  if (!wb.Workbook) wb.Workbook = { Sheets: [] };
+  if (!wb.Workbook.Sheets) wb.Workbook.Sheets = [];
+  wb.SheetNames.forEach((_, i) => {
+    if (!wb.Workbook!.Sheets![i]) wb.Workbook!.Sheets![i] = { Hidden: 0 } as any;
+  });
+  wb.Workbook.Sheets[sheetIndex] = { Hidden: 1 } as any;
+
+  // Defined names so chapter dropdown can use INDIRECT(subject_cell)
+  // Named ranges: Physics, Chemistry, Mathematics → chapters columns
+  wb.Workbook.Names = [
+    {
+      Name: "Physics",
+      Ref: `Lists!$B$2:$B$${1 + allChaptersBySubject["Physics"].length}`,
+    },
+    {
+      Name: "Chemistry",
+      Ref: `Lists!$C$2:$C$${1 + allChaptersBySubject["Chemistry"].length}`,
+    },
+    {
+      Name: "Mathematics",
+      Ref: `Lists!$D$2:$D$${1 + allChaptersBySubject["Mathematics"].length}`,
+    },
+    {
+      Name: "_Subjects",
+      Ref: `Lists!$A$2:$A$${1 + subjects.length}`,
+    },
+    {
+      Name: "_Topics",
+      Ref: `Lists!$E$2:$E$${1 + allTopics.length}`,
+    },
+    {
+      Name: "_Types",
+      Ref: `Lists!$F$2:$F$4`,
+    },
+    {
+      Name: "_Difficulties",
+      Ref: `Lists!$G$2:$G$4`,
+    },
+  ] as any;
+
+  return wb;
+}
+
+// Build the data-validations XML block for the Questions sheet.
+// Columns: A=subject, B=chapter, C=topic, J=question_type, M=difficulty (1-indexed letters).
+function buildDataValidationsXml(rows = 200): string {
+  const last = rows + 1; // header is row 1
+  const dvs = [
+    // subject (col A)
+    `<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="A2:A${last}"><formula1>=_Subjects</formula1></dataValidation>`,
+    // chapter (col B) — dependent on subject in same row
+    `<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="0" sqref="B2:B${last}"><formula1>=INDIRECT($A2)</formula1></dataValidation>`,
+    // topic (col C)
+    `<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="0" sqref="C2:C${last}"><formula1>=_Topics</formula1></dataValidation>`,
+    // question_type (col J = 10th)
+    `<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="J2:J${last}"><formula1>=_Types</formula1></dataValidation>`,
+    // difficulty (col M = 13th)
+    `<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" sqref="M2:M${last}"><formula1>=_Difficulties</formula1></dataValidation>`,
+  ];
+  return `<dataValidations count="${dvs.length}">${dvs.join("")}</dataValidations>`;
+}
+
+// Inject <dataValidations> into the Questions sheet of the workbook XML (xlsx is a zip).
+function injectDataValidations(buffer: ArrayBuffer): Uint8Array {
+  const u8 = new Uint8Array(buffer);
+  const files = unzipSync(u8);
+
+  // Find the Questions sheet's XML file via workbook.xml + relationships.
+  const workbookXml = strFromU8(files["xl/workbook.xml"]);
+  const relsXml = strFromU8(files["xl/_rels/workbook.xml.rels"]);
+  // sheet name → r:id
+  const sheetMatch = workbookXml.match(/<sheet[^>]*name="Questions"[^>]*r:id="([^"]+)"/);
+  if (!sheetMatch) return u8;
+  const rid = sheetMatch[1];
+  const targetMatch = relsXml.match(new RegExp(`<Relationship[^>]*Id="${rid}"[^>]*Target="([^"]+)"`));
+  if (!targetMatch) return u8;
+  const target = `xl/${targetMatch[1].replace(/^\/?xl\//, "")}`;
+  const sheetKey = files[target] ? target : Object.keys(files).find((k) => k.endsWith(targetMatch[1]));
+  if (!sheetKey || !files[sheetKey]) return u8;
+
+  let sheetXml = strFromU8(files[sheetKey]);
+  const dvXml = buildDataValidationsXml(200);
+
+  // Insert <dataValidations> after </sheetData> (or before </worksheet> if missing).
+  if (sheetXml.includes("<dataValidations")) {
+    // already present — replace
+    sheetXml = sheetXml.replace(/<dataValidations[\s\S]*?<\/dataValidations>/, dvXml);
+  } else if (sheetXml.includes("</sheetData>")) {
+    sheetXml = sheetXml.replace("</sheetData>", `</sheetData>${dvXml}`);
+  } else {
+    sheetXml = sheetXml.replace("</worksheet>", `${dvXml}</worksheet>`);
+  }
+
+  files[sheetKey] = strToU8(sheetXml);
+  return zipSync(files);
 }
 
 function downloadTemplate() {
-  const csv = Papa.unparse(buildTemplateRows(), { columns: EXPECTED_COLUMNS });
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const wb = buildTemplateWorkbook();
+  const arrayBuf = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+  const finalBytes = injectDataValidations(arrayBuf);
+  const blob = new Blob([finalBytes.buffer.slice(finalBytes.byteOffset, finalBytes.byteOffset + finalBytes.byteLength) as ArrayBuffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "phynetix_question_import_template.csv";
+  a.download = "phynetix_question_import_template.xlsx";
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -336,8 +459,24 @@ export default function BulkQuestionImport() {
         },
         error: () => toast.error("Failed to parse CSV"),
       });
+    } else if (ext === "xlsx" || ext === "xls") {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const wb = XLSX.read(e.target?.result, { type: "array" });
+        // Prefer "Questions" sheet, otherwise the first non-instructional sheet, else the first sheet.
+        const sheetName =
+          wb.SheetNames.find((n) => n.toLowerCase() === "questions") ||
+          wb.SheetNames.find((n) => !["instructions", "examples"].includes(n.toLowerCase())) ||
+          wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        const data = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: "" });
+        const parsed = data.map((r, i) => validateRow(r, i + 1));
+        setRows(parsed);
+        toast.success(`Parsed ${parsed.length} rows from "${sheetName}"`);
+      };
+      reader.readAsArrayBuffer(file);
     } else {
-      toast.error("Unsupported file format. Use .csv");
+      toast.error("Unsupported file format. Use .csv or .xlsx");
     }
   }, []);
 
@@ -350,7 +489,7 @@ export default function BulkQuestionImport() {
 
   const handleDownloadTemplate = () => {
     downloadTemplate();
-    toast.success("CSV template downloaded");
+    toast.success("Excel template downloaded");
   };
 
   const handleImport = async () => {
@@ -436,11 +575,11 @@ export default function BulkQuestionImport() {
         <div>
           <h2 className="text-2xl font-bold text-foreground">Bulk Question Import</h2>
           <p className="text-muted-foreground text-sm mt-1">
-            Upload CSV files to import questions into the library
+            Upload CSV or Excel files to import questions into the library
           </p>
         </div>
         <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2">
-          <Download className="h-4 w-4" /> Download CSV Template
+          <Download className="h-4 w-4" /> Download Excel Template
         </Button>
       </div>
 
@@ -454,16 +593,16 @@ export default function BulkQuestionImport() {
         onDrop={handleDrop}
         onClick={() => fileRef.current?.click()}
       >
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv"
-            className="hidden"
-            onChange={(e) => { if (e.target.files?.[0]) parseFile(e.target.files[0]); }}
-          />
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          className="hidden"
+          onChange={(e) => { if (e.target.files?.[0]) parseFile(e.target.files[0]); }}
+        />
         <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
         <p className="text-foreground font-medium">Drag & drop your file here or click to browse</p>
-        <p className="text-muted-foreground text-sm mt-1">Supports .csv files only</p>
+        <p className="text-muted-foreground text-sm mt-1">Supports .csv and .xlsx files</p>
       </Card>
 
       {/* Summary */}
