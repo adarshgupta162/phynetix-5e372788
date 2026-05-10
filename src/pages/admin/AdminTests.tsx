@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import AdminLayout from "@/components/layout/AdminLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { isMissingSupabaseTableError } from "@/lib/supabase/errors";
 
 interface Test {
   id: string;
@@ -71,10 +72,13 @@ export default function AdminTests() {
       }
       setQuestionCounts(counts);
 
-      const { data: monitoringData } = await supabase
+      const { data: monitoringData, error: monitoringError } = await supabase
         .from('proctoring_test_settings')
         .select('test_id, enabled')
         .in('test_id', testsData.map((test) => test.id));
+      if (monitoringError && !isMissingSupabaseTableError(monitoringError)) {
+        console.error('Failed to load monitoring settings', monitoringError);
+      }
       setMonitoringEnabled(Object.fromEntries((monitoringData || []).map((item) => [item.test_id, !!item.enabled])));
     }
     
