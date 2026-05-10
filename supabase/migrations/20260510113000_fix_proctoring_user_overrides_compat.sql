@@ -33,12 +33,9 @@ ALTER TABLE public.proctoring_user_overrides
   ADD COLUMN IF NOT EXISTS created_at timestamptz,
   ADD COLUMN IF NOT EXISTS updated_at timestamptz;
 
-ALTER TABLE public.proctoring_user_overrides
-  ALTER COLUMN id SET DEFAULT gen_random_uuid();
-
 UPDATE public.proctoring_user_overrides
 SET
-  id = DEFAULT,
+  id = COALESCE(id, gen_random_uuid()),
   allowed = COALESCE(allowed, true),
   created_at = COALESCE(created_at, now()),
   updated_at = COALESCE(updated_at, now())
