@@ -7,10 +7,15 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
 import type { ProctoringSettings } from '@/lib/proctoring/types';
 import { DEFAULT_PROCTORING_SETTINGS } from '@/lib/proctoring/settings';
-import { isMissingSupabaseTableError } from '@/lib/supabase/errors';
+import {
+  isProctoringSchemaMissingError,
+  LIVE_MONITORING_SCHEMA_MISSING_MESSAGE,
+  type ProctoringSchemaDiagnostics,
+} from '@/lib/supabase/errors';
 
 type UserOverride = {
   id?: string;
@@ -35,16 +40,23 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
   const [overrides, setOverrides] = useState<UserOverride[]>([]);
   const [newUserId, setNewUserId] = useState('');
   const [saving, setSaving] = useState(false);
-  const missingSchemaMessage = 'Live monitoring schema is missing. Run latest Supabase migrations and reload.';
+  const [schemaDiagnostics, setSchemaDiagnostics] = useState<ProctoringSchemaDiagnostics>(null);
+  const [retrying, setRetrying] = useState(false);
 
-  const load = async () => {
+  const load = async (options?: { toastOnSchemaError?: boolean }) => {
+    const toastOnSchemaError = options?.toastOnSchemaError ?? true;
     const { data, error } = await supabase.from('proctoring_test_settings').select('*').eq('test_id', testId).maybeSingle();
     if (error) {
-      if (isMissingSupabaseTableError(error)) {
-        toast({ title: 'Monitoring setup required', description: missingSchemaMessage, variant: 'destructive' });
+      if (isProctoringSchemaMissingError(error)) {
+        setSchemaDiagnostics({ missing_tables: ['proctoring_test_settings'] });
+        if (toastOnSchemaError) {
+          toast({ title: 'Monitoring setup required', description: LIVE_MONITORING_SCHEMA_MISSING_MESSAGE, variant: 'destructive' });
+        }
       }
+      setRetrying(false);
       return;
     }
+    setSchemaDiagnostics(null);
     if (data) {
       setSettings({
         enabled: data.enabled ?? false,
@@ -66,9 +78,13 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
       .eq('test_id', testId)
       .order('created_at', { ascending: false });
     if (overrideError) {
-      if (isMissingSupabaseTableError(overrideError)) {
-        toast({ title: 'Monitoring setup required', description: missingSchemaMessage, variant: 'destructive' });
+      if (isProctoringSchemaMissingError(overrideError)) {
+        setSchemaDiagnostics({ missing_tables: ['proctoring_user_overrides'] });
+        if (toastOnSchemaError) {
+          toast({ title: 'Monitoring setup required', description: LIVE_MONITORING_SCHEMA_MISSING_MESSAGE, variant: 'destructive' });
+        }
       }
+      setRetrying(false);
       return;
     }
     const userIds = (overrideData || []).map((item) => item.user_id);
@@ -77,9 +93,19 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
       : { data: [] };
     const profileMap = new Map((profiles || []).map((profile) => [profile.id, profile]));
     setOverrides(((overrideData || []).map((item) => ({ ...item, profile: profileMap.get(item.user_id) || null })) as UserOverride[]));
+    setRetrying(false);
   };
 
   useEffect(() => { load(); }, [testId]);
+
+  useEffect(() => {
+    if (!schemaDiagnostics) return;
+    const timer = window.setTimeout(() => {
+      setRetrying(true);
+      load({ toastOnSchemaError: false }).catch(() => setRetrying(false));
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [schemaDiagnostics, testId]);
 
   const save = async () => {
     setSaving(true);
@@ -100,8 +126,9 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
     }, { onConflict: 'test_id' });
     setSaving(false);
     if (error) {
-      const description = isMissingSupabaseTableError(error) ? missingSchemaMessage : error.message;
+      const description = isProctoringSchemaMissingError(error) ? LIVE_MONITORING_SCHEMA_MISSING_MESSAGE : error.message;
       toast({ title: 'Failed to save monitoring settings', description, variant: 'destructive' });
+      if (isProctoringSchemaMissingError(error)) setSchemaDiagnostics({ missing_tables: ['proctoring_test_settings'] });
     }
     else toast({ title: 'Live monitoring settings saved' });
   };
@@ -118,8 +145,9 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
       updated_by: userData.user?.id,
     }, { onConflict: 'test_id,user_id' });
     if (error) {
-      const description = isMissingSupabaseTableError(error) ? missingSchemaMessage : error.message;
+      const description = isProctoringSchemaMissingError(error) ? LIVE_MONITORING_SCHEMA_MISSING_MESSAGE : error.message;
       toast({ title: 'Failed to add user override', description, variant: 'destructive' });
+      if (isProctoringSchemaMissingError(error)) setSchemaDiagnostics({ missing_tables: ['proctoring_user_overrides'] });
     }
     else {
       setNewUserId('');
@@ -135,8 +163,9 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
       .eq('test_id', testId)
       .eq('user_id', override.user_id);
     if (error) {
-      const description = isMissingSupabaseTableError(error) ? missingSchemaMessage : error.message;
+      const description = isProctoringSchemaMissingError(error) ? LIVE_MONITORING_SCHEMA_MISSING_MESSAGE : error.message;
       toast({ title: 'Failed to update user override', description, variant: 'destructive' });
+      if (isProctoringSchemaMissingError(error)) setSchemaDiagnostics({ missing_tables: ['proctoring_user_overrides'] });
       return;
     }
     setOverrides((items) => items.map((item) => item.user_id === override.user_id ? { ...item, ...updates } : item));
@@ -153,6 +182,26 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
         </div>
         <Badge variant={settings.enabled ? 'default' : 'secondary'}>{settings.enabled ? 'Enabled' : 'Disabled'}</Badge>
       </div>
+
+      {schemaDiagnostics && (
+        <Alert variant="destructive">
+          <AlertTitle>Monitoring schema diagnostics</AlertTitle>
+          <AlertDescription>
+            <p>{LIVE_MONITORING_SCHEMA_MISSING_MESSAGE}</p>
+            {schemaDiagnostics.missing_tables?.length ? (
+              <p className="mt-1">Missing tables: {schemaDiagnostics.missing_tables.join(', ')}</p>
+            ) : null}
+            {schemaDiagnostics.stale_migrations?.length ? (
+              <p className="mt-1">Run migrations: {schemaDiagnostics.stale_migrations.join(', ')}</p>
+            ) : null}
+            <div className="mt-3">
+              <Button type="button" variant="outline" size="sm" onClick={() => { setRetrying(true); load().catch(() => setRetrying(false)); }} disabled={retrying}>
+                {retrying ? 'Retrying…' : 'Retry now'}
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid gap-4">
         <div className="flex items-center justify-between"><Label>Enable monitoring</Label><Switch checked={settings.enabled} onCheckedChange={(v) => field('enabled', v)} /></div>
@@ -201,7 +250,7 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
         </div>
       )}
 
-      <Button onClick={save} disabled={saving} className="w-full"><Save className="w-4 h-4 mr-2" /> {saving ? 'Saving…' : 'Save monitoring settings'}</Button>
+      <Button onClick={save} disabled={saving || !!schemaDiagnostics} className="w-full"><Save className="w-4 h-4 mr-2" /> {saving ? 'Saving…' : 'Save monitoring settings'}</Button>
     </div>
   );
 }

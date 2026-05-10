@@ -1,5 +1,14 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsHeaders, createLiveKitToken, getAdminClient, jsonResponse, requireUser, resolveSettings, roomNameForAttempt } from "../_shared/proctoring.ts";
+import {
+  corsHeaders,
+  createLiveKitToken,
+  getAdminClient,
+  jsonResponse,
+  requireProctoringSchema,
+  requireUser,
+  resolveSettings,
+  roomNameForAttempt,
+} from "../_shared/proctoring.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -7,6 +16,8 @@ serve(async (req) => {
   try {
     const supabaseAdmin = getAdminClient();
     const user = await requireUser(req, supabaseAdmin);
+    const schemaResponse = await requireProctoringSchema(supabaseAdmin);
+    if (schemaResponse) return schemaResponse;
     const { attempt_id, consent_accepted, devices = {}, metadata = {} } = await req.json();
     if (!attempt_id) throw new Error("attempt_id is required");
     if (!consent_accepted) throw new Error("Live monitoring consent is required");

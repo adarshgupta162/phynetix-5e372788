@@ -36,11 +36,131 @@ export const isAdmin = async (supabaseAdmin: ReturnType<typeof getAdminClient>, 
   return !!data;
 };
 
-const isMissingSupabaseTableError = (error: { code?: string | null; message?: string | null } | null | undefined) => {
+type SupabaseErrorLike = { code?: string | null; message?: string | null; details?: string | null };
+
+const isMissingSupabaseTableError = (error: SupabaseErrorLike | null | undefined) => {
   if (!error) return false;
   const code = error.code ?? "";
   const message = error.message ?? "";
-  return code === "42P01" || code === "PGRST205" || message.includes("schema cache");
+  return code === "42P01" || code === "PGRST205" || code === "42703" || code === "42883" || message.includes("schema cache");
+};
+
+export const PROCTORING_SCHEMA_ERROR_CODE = "PROCTORING_SCHEMA_MISSING";
+export const PROCTORING_SCHEMA_MISSING_MESSAGE = "Live monitoring schema is missing. Run latest Supabase migrations and reload.";
+
+const REQUIRED_TABLE_COLUMNS: Record<string, string[]> = {
+  proctoring_test_settings: ["id", "test_id", "enabled", "allow_specific_users_only"],
+  proctoring_user_overrides: ["id", "test_id", "user_id", "allowed"],
+  proctoring_sessions: ["id", "attempt_id", "test_id", "user_id", "status", "provider_room_name", "last_heartbeat_at"],
+  proctoring_events: ["id", "session_id", "attempt_id", "event_type", "created_at"],
+};
+
+const REQUIRED_MIGRATIONS = [
+  "20260510090000_add_live_proctoring.sql",
+  "20260510100500_fix_proctoring_settings_table_compat.sql",
+  "20260510113000_fix_proctoring_user_overrides_compat.sql",
+  "20260510140000_repair_live_monitoring_schema.sql",
+];
+
+const PROCTORING_SCHEMA_CACHE_TTL_MS = 30_000;
+
+type ProctoringSchemaDiagnostics = {
+  checked_at: string;
+  missing_tables: string[];
+  missing_columns: Record<string, string[]>;
+  stale_migrations: string[];
+};
+
+type ProctoringSchemaHealth = {
+  ready: boolean;
+  diagnostics: ProctoringSchemaDiagnostics | null;
+};
+
+let schemaHealthCache: { checkedAtMs: number; value: ProctoringSchemaHealth } | null = null;
+
+const missingColumnFromError = (error: SupabaseErrorLike | null | undefined) => {
+  const text = `${error?.message ?? ""} ${error?.details ?? ""}`;
+  const quoted = text.match(/column\\s+\"([^\"]+)\"/i)?.[1];
+  if (quoted) return quoted;
+  return text.match(/column\\s+([a-zA-Z0-9_]+)/i)?.[1] ?? null;
+};
+
+const buildProctoringSchemaDiagnostics = (
+  missingTables: string[],
+  missingColumns: Record<string, string[]>,
+): ProctoringSchemaDiagnostics => ({
+  checked_at: new Date().toISOString(),
+  missing_tables: missingTables,
+  missing_columns: missingColumns,
+  stale_migrations: missingTables.length || Object.keys(missingColumns).length ? REQUIRED_MIGRATIONS : [],
+});
+
+export const validateProctoringSchema = async (
+  supabaseAdmin: ReturnType<typeof getAdminClient>,
+  forceRefresh = false,
+): Promise<ProctoringSchemaHealth> => {
+  const now = Date.now();
+  if (!forceRefresh && schemaHealthCache && (now - schemaHealthCache.checkedAtMs) < PROCTORING_SCHEMA_CACHE_TTL_MS) {
+    return schemaHealthCache.value;
+  }
+
+  const missingTables = new Set<string>();
+  const missingColumns = new Map<string, Set<string>>();
+
+  await Promise.all(Object.entries(REQUIRED_TABLE_COLUMNS).map(async ([table, requiredColumns]) => {
+    const { error: tableError } = await supabaseAdmin
+      .from(table)
+      .select("id", { head: true, count: "exact" })
+      .limit(1);
+
+    if (tableError && isMissingSupabaseTableError(tableError)) {
+      missingTables.add(table);
+      return;
+    }
+    if (tableError) return;
+
+    await Promise.all(requiredColumns.map(async (column) => {
+      const { error: columnError } = await supabaseAdmin
+        .from(table)
+        .select(column, { head: true, count: "exact" })
+        .limit(1);
+
+      if (!columnError) return;
+      if (isMissingSupabaseTableError(columnError)) {
+        const resolvedColumn = missingColumnFromError(columnError) ?? column;
+        const existing = missingColumns.get(table) ?? new Set<string>();
+        existing.add(resolvedColumn);
+        missingColumns.set(table, existing);
+      }
+    }));
+  }));
+
+  const diagnostics = buildProctoringSchemaDiagnostics(
+    Array.from(missingTables).sort(),
+    Object.fromEntries(Array.from(missingColumns.entries()).map(([table, columns]) => [table, Array.from(columns).sort()])),
+  );
+
+  const value: ProctoringSchemaHealth = {
+    ready: diagnostics.missing_tables.length === 0 && Object.keys(diagnostics.missing_columns).length === 0,
+    diagnostics: diagnostics.missing_tables.length || Object.keys(diagnostics.missing_columns).length ? diagnostics : null,
+  };
+
+  schemaHealthCache = { checkedAtMs: now, value };
+  return value;
+};
+
+export const buildProctoringSchemaErrorPayload = (diagnostics: ProctoringSchemaDiagnostics | null) => ({
+  code: PROCTORING_SCHEMA_ERROR_CODE,
+  error: PROCTORING_SCHEMA_MISSING_MESSAGE,
+  diagnostics,
+});
+
+export const requireProctoringSchema = async (
+  supabaseAdmin: ReturnType<typeof getAdminClient>,
+): Promise<Response | null> => {
+  const health = await validateProctoringSchema(supabaseAdmin);
+  if (health.ready) return null;
+  return jsonResponse(buildProctoringSchemaErrorPayload(health.diagnostics), 503);
 };
 
 export type EffectiveProctoringSettings = {

@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsHeaders, createLiveKitToken, getAdminClient, isAdmin, jsonResponse, requireUser } from "../_shared/proctoring.ts";
+import { corsHeaders, createLiveKitToken, getAdminClient, isAdmin, jsonResponse, requireProctoringSchema, requireUser } from "../_shared/proctoring.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -8,6 +8,8 @@ serve(async (req) => {
     const supabaseAdmin = getAdminClient();
     const user = await requireUser(req, supabaseAdmin);
     if (!(await isAdmin(supabaseAdmin, user.id))) throw new Error("Admin access required");
+    const schemaResponse = await requireProctoringSchema(supabaseAdmin);
+    if (schemaResponse) return schemaResponse;
 
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const sessionId = body.session_id;

@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsHeaders, getAdminClient, jsonResponse, requireUser } from "../_shared/proctoring.ts";
+import { corsHeaders, getAdminClient, jsonResponse, requireProctoringSchema, requireUser } from "../_shared/proctoring.ts";
 
 const heartbeatTypes = new Set(["heartbeat", "provider_connected", "provider_disconnected"]);
 
@@ -9,6 +9,8 @@ serve(async (req) => {
   try {
     const supabaseAdmin = getAdminClient();
     const user = await requireUser(req, supabaseAdmin);
+    const schemaResponse = await requireProctoringSchema(supabaseAdmin);
+    if (schemaResponse) return schemaResponse;
     const { session_id, event_type, payload = {}, question_id = null, subject_name = null } = await req.json();
     if (!session_id || !event_type) throw new Error("session_id and event_type are required");
 

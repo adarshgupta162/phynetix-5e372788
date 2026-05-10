@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import { isMissingSupabaseTableError } from '@/lib/supabase/errors';
+import { isProctoringSchemaMissingError } from '@/lib/supabase/errors';
 import type { ProctoringSettings } from './types';
 
 export const DEFAULT_PROCTORING_SETTINGS: ProctoringSettings = {
@@ -22,7 +22,7 @@ export async function loadEffectiveProctoringSettings(testId: string, userId?: s
     .eq('test_id', testId)
     .maybeSingle();
 
-  if (settingsError && isMissingSupabaseTableError(settingsError)) return DEFAULT_PROCTORING_SETTINGS;
+  if (settingsError && isProctoringSchemaMissingError(settingsError)) return DEFAULT_PROCTORING_SETTINGS;
   if (!settings) return DEFAULT_PROCTORING_SETTINGS;
 
   let effective: ProctoringSettings = {
@@ -46,7 +46,7 @@ export async function loadEffectiveProctoringSettings(testId: string, userId?: s
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (overrideError && isMissingSupabaseTableError(overrideError)) {
+    if (overrideError && isProctoringSchemaMissingError(overrideError)) {
       return {
         ...effective,
         allowed: !effective.allow_specific_users_only,

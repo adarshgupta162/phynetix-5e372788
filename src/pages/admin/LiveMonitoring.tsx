@@ -8,6 +8,14 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { connectAdminViewer, type LiveKitConnection } from '@/lib/proctoring/livekit';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { useToast } from '@/hooks/use-toast';
+import {
+  extractProctoringSchemaDiagnostics,
+  isProctoringSchemaMissingError,
+  LIVE_MONITORING_SCHEMA_MISSING_MESSAGE,
+  type ProctoringSchemaDiagnostics,
+} from '@/lib/supabase/errors';
 
 type LiveSession = any;
 type LiveEvent = any;
@@ -101,20 +109,36 @@ function LiveViewer({ session, token, events }: { session: LiveSession; token?: 
 }
 
 export default function LiveMonitoring() {
+  const { toast } = useToast();
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [selected, setSelected] = useState<LiveSession | null>(null);
   const [viewerTokens, setViewerTokens] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
+  const [retrying, setRetrying] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [schemaDiagnostics, setSchemaDiagnostics] = useState<ProctoringSchemaDiagnostics>(null);
 
-  const load = useCallback(async (sessionId?: string) => {
+  const load = useCallback(async (sessionId?: string, options?: { toastOnSchemaError?: boolean }) => {
+    const toastOnSchemaError = options?.toastOnSchemaError ?? true;
     setLoading(true);
     const { data, error } = await supabase.functions.invoke('admin-proctoring-sessions', { body: sessionId ? { session_id: sessionId } : {} });
     if (error || data?.error) {
       console.error(error || data?.error);
+      setErrorMessage(data?.error || error?.message || 'Failed to load live monitoring sessions');
+      if (isProctoringSchemaMissingError(error, data)) {
+        setSchemaDiagnostics(extractProctoringSchemaDiagnostics(data) ?? { missing_tables: ['proctoring_sessions', 'proctoring_events'] });
+        if (toastOnSchemaError) {
+          toast({ title: 'Monitoring setup required', description: LIVE_MONITORING_SCHEMA_MISSING_MESSAGE, variant: 'destructive' });
+        }
+      } else {
+        setSchemaDiagnostics(null);
+      }
       setLoading(false);
       return;
     }
+    setErrorMessage(null);
+    setSchemaDiagnostics(null);
     if (sessionId) {
       setSelected(data.sessions?.[0] || null);
       setViewerTokens((prev) => ({ ...prev, ...(data.viewer_tokens || {}) }));
@@ -122,12 +146,23 @@ export default function LiveMonitoring() {
       setSessions(data.sessions || []);
     }
     setEvents(data.events || []);
+    setRetrying(false);
     setLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
+    if (!schemaDiagnostics) return;
+    const timer = window.setTimeout(() => {
+      setRetrying(true);
+      load(undefined, { toastOnSchemaError: false }).catch(() => setRetrying(false));
+    }, 10000);
+    return () => window.clearTimeout(timer);
+  }, [load, schemaDiagnostics]);
+
+  useEffect(() => {
+    if (schemaDiagnostics) return;
     const channel = supabase
       .channel('admin-live-proctoring')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'proctoring_sessions' }, () => load())
@@ -136,7 +171,7 @@ export default function LiveMonitoring() {
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [load]);
+  }, [load, schemaDiagnostics]);
 
   const openViewer = async (session: LiveSession) => {
     setSelected(session);
@@ -166,6 +201,42 @@ export default function LiveMonitoring() {
           <div className="glass-card p-4"><p className="text-sm text-muted-foreground">Screen shared</p><p className="text-2xl font-bold">{sessions.filter((s) => s.screen_enabled).length}</p></div>
           <div className="glass-card p-4"><p className="text-sm text-muted-foreground">Recent events</p><p className="text-2xl font-bold">{events.length}</p></div>
         </div>
+
+        {schemaDiagnostics && (
+          <Alert variant="destructive">
+            <AlertTitle>Admin diagnostics panel</AlertTitle>
+            <AlertDescription>
+              <p>{LIVE_MONITORING_SCHEMA_MISSING_MESSAGE}</p>
+              {schemaDiagnostics.missing_tables?.length ? (
+                <p className="mt-1">Missing tables: {schemaDiagnostics.missing_tables.join(', ')}</p>
+              ) : null}
+              {schemaDiagnostics.stale_migrations?.length ? (
+                <p className="mt-1">Run migrations: {schemaDiagnostics.stale_migrations.join(', ')}</p>
+              ) : null}
+              {schemaDiagnostics.missing_columns && Object.keys(schemaDiagnostics.missing_columns).length ? (
+                <div className="mt-1">
+                  Missing columns:
+                  <ul className="list-disc ml-5">
+                    {Object.entries(schemaDiagnostics.missing_columns).map(([table, columns]) => (
+                      <li key={table}>{table}: {columns.join(', ')}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <div className="mt-3 flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => { setRetrying(true); load().catch(() => setRetrying(false)); }} disabled={retrying || loading}>
+                  {retrying || loading ? 'Retrying…' : 'Retry now'}
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+        {errorMessage && !schemaDiagnostics && (
+          <Alert variant="destructive">
+            <AlertTitle>Unable to load live monitoring</AlertTitle>
+            <AlertDescription>{errorMessage}</AlertDescription>
+          </Alert>
+        )}
 
         <div className="grid gap-4">
           {sessions.map((session) => {

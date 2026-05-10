@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsHeaders, getAdminClient, isAdmin, jsonResponse, requireUser } from "../_shared/proctoring.ts";
+import { corsHeaders, getAdminClient, isAdmin, jsonResponse, requireProctoringSchema, requireUser } from "../_shared/proctoring.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -7,6 +7,8 @@ serve(async (req) => {
   try {
     const supabaseAdmin = getAdminClient();
     const user = await requireUser(req, supabaseAdmin);
+    const schemaResponse = await requireProctoringSchema(supabaseAdmin);
+    if (schemaResponse) return schemaResponse;
     const { session_id, attempt_id, reason = "stopped" } = await req.json();
     if (!session_id && !attempt_id) throw new Error("session_id or attempt_id is required");
 
