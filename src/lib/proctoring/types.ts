@@ -41,3 +41,23 @@ export type ProctoringEventPayload = {
   subjectName?: string | null;
   payload?: Record<string, unknown>;
 };
+
+export type MonitoringSessionRecord = {
+  id: string;
+  attempt_id: string;
+  student_id: string | null;
+  status: 'pending' | 'active' | 'ended' | 'failed' | 'stale';
+  started_at: string;
+  ended_at: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type MonitoringEventRecord = {
+  id: string;
+  session_id: string;
+  event_type: string;
+  question_id?: string | null;
+  subject_name?: string | null;
+  payload?: Record<string, unknown> | null;
+  created_at: string;
+};

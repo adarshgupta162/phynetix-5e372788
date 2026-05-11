@@ -1386,6 +1386,66 @@ export type Database = {
           },
         ]
       }
+      monitoring_sessions: {
+        Row: {
+          attempt_id: string
+          ended_at: string | null
+          id: string
+          metadata: Json | null
+          started_at: string
+          status: string
+          student_id: string | null
+        }
+        Insert: {
+          attempt_id: string
+          ended_at?: string | null
+          id?: string
+          metadata?: Json | null
+          started_at?: string
+          status?: string
+          student_id?: string | null
+        }
+        Update: {
+          attempt_id?: string
+          ended_at?: string | null
+          id?: string
+          metadata?: Json | null
+          started_at?: string
+          status?: string
+          student_id?: string | null
+        }
+        Relationships: []
+      }
+      monitoring_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          payload: Json | null
+          question_id: string | null
+          session_id: string
+          subject_name: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          payload?: Json | null
+          question_id?: string | null
+          session_id: string
+          subject_name?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          payload?: Json | null
+          question_id?: string | null
+          session_id?: string
+          subject_name?: string | null
+        }
+        Relationships: []
+      }
       proctoring_sessions: {
         Row: {
           attempt_id: string

@@ -2,9 +2,52 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { loadEffectiveProctoringSettings } from '@/lib/proctoring/settings';
 import { publishStudentTracks, type LiveKitConnection } from '@/lib/proctoring/livekit';
-import type { ProctoringDeviceState, ProctoringEventPayload, ProctoringSession, ProctoringSettings } from '@/lib/proctoring/types';
+import type {
+  MonitoringSessionRecord,
+  ProctoringDeviceState,
+  ProctoringEventPayload,
+  ProctoringSession,
+  ProctoringSettings,
+} from '@/lib/proctoring/types';
 
 const stopStream = (stream: MediaStream | null) => stream?.getTracks().forEach((track) => track.stop());
+const nowIso = () => new Date().toISOString();
+let fallbackIdCounter = 0;
+const createMonitoringId = (prefix: 'session' | 'event') => {
+  const timestamp = Date.now();
+  const randomSuffix = typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function'
+    ? Array.from(crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(36)).join('')
+    : `${timestamp}_${(fallbackIdCounter += 1)}`;
+  return `${prefix}_${timestamp}_${randomSuffix}`;
+};
+
+const isMonitoringSessionRecord = (value: unknown): value is MonitoringSessionRecord => {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Partial<MonitoringSessionRecord>;
+  return typeof row.id === 'string' && typeof row.attempt_id === 'string' && typeof row.started_at === 'string';
+};
+
+const buildSessionModel = (
+  row: MonitoringSessionRecord,
+  fallback: { testId?: string | null; studentId?: string | null; devices: ProctoringDeviceState },
+): ProctoringSession => ({
+  id: row.id,
+  attempt_id: row.attempt_id,
+  test_id: fallback.testId ?? '',
+  user_id: row.student_id ?? fallback.studentId ?? '',
+  status: (row.status as ProctoringSession['status']) ?? 'active',
+  provider: '',
+  provider_room_name: '',
+  camera_enabled: fallback.devices.camera,
+  microphone_enabled: fallback.devices.microphone,
+  screen_enabled: fallback.devices.screen,
+  recording_enabled: false,
+  last_heartbeat_at: null,
+  started_at: row.started_at,
+  ended_at: row.ended_at,
+  failure_reason: null,
+  metadata: row.metadata ?? {},
+});
 
 export function useProctoring(testId?: string | null, userId?: string | null) {
   const [settings, setSettings] = useState<ProctoringSettings | null>(null);
@@ -35,16 +78,16 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const logEvent = useCallback(async (eventType: string, event?: ProctoringEventPayload) => {
     const activeSession = sessionRef.current;
     if (!activeSession?.id) return;
-    const { error } = await supabase.functions.invoke('log-proctoring-event', {
-      body: {
-        session_id: activeSession.id,
-        event_type: eventType,
-        question_id: event?.questionId ?? null,
-        subject_name: event?.subjectName ?? null,
-        payload: event?.payload ?? {},
-      },
+    const { error } = await supabase.from('monitoring_events').insert({
+      id: createMonitoringId('event'),
+      session_id: String(activeSession.id),
+      event_type: eventType,
+      question_id: event?.questionId ?? null,
+      subject_name: event?.subjectName ?? null,
+      payload: event?.payload ?? {},
+      created_at: nowIso(),
     });
-    if (error) console.error('Failed to log proctoring event', error);
+    if (error) console.warn('Failed to log proctoring event', error);
   }, []);
 
   const prepare = useCallback(async () => {
@@ -137,41 +180,81 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const effective = settings ?? await loadSettings();
     if (!effective?.enabled) return null;
 
+    const studentId = userId ?? (await supabase.auth.getUser()).data.user?.id ?? null;
     const deviceState = devicesRef.current;
-    const { data, error } = await supabase.functions.invoke('start-proctoring-session', {
-      body: {
-        attempt_id: attemptId,
-        consent_accepted: true,
-        devices: deviceState,
-        metadata,
-      },
-    });
-    if (error || data?.error) throw new Error(data?.error || error?.message || 'Failed to start live monitoring');
-    if (!data?.enabled) return null;
+    const sessionId = createMonitoringId('session');
+    const startedAt = nowIso();
+    const { data, error } = await supabase
+      .from('monitoring_sessions')
+      .insert({
+        id: sessionId,
+        attempt_id: String(attemptId),
+        student_id: studentId ? String(studentId) : null,
+        status: 'active',
+        started_at: startedAt,
+        ended_at: null,
+        metadata: {
+          ...metadata,
+          devices: deviceState,
+          test_id: testId ?? null,
+          consent_accepted: true,
+        },
+      })
+      .select('*')
+      .single();
+    if (error) {
+      console.warn('Failed to start live monitoring session', error);
+      setIsStreaming(false);
+      return null;
+    }
+    if (!data) {
+      console.warn('Live monitoring session response missing data');
+      setIsStreaming(false);
+      return null;
+    }
+    if (!isMonitoringSessionRecord(data)) {
+      console.warn('Live monitoring session response has unexpected shape');
+      setIsStreaming(false);
+      return null;
+    }
 
-    setSession(data.session);
-    sessionRef.current = data.session;
+    const nextSession = buildSessionModel(data, { devices: deviceState, studentId, testId });
+    setSession(nextSession);
+    sessionRef.current = nextSession;
+    await logEvent('session_started', { payload: { devices: deviceState } });
+    if (deviceState.camera) await logEvent('camera_started', { payload: { camera: true } });
+    if (deviceState.screen) await logEvent('screen_share_started', { payload: { screen: true } });
+    await logEvent('device_state', { payload: { devices: deviceState } });
 
+    const providerMetadata = metadata.provider;
+    const provider = typeof providerMetadata === 'object' && providerMetadata
+      ? providerMetadata as { livekit_url?: string; token?: string }
+      : null;
     try {
-      connectionRef.current = await publishStudentTracks({
-        url: data.provider?.livekit_url,
-        token: data.provider?.token,
-        cameraStream: cameraStreamRef.current,
-        screenStream: screenStreamRef.current,
-        onDisconnected: () => logEvent('provider_disconnected'),
-      });
-      if (connectionRef.current) await logEvent('provider_connected');
+      if (provider?.livekit_url && provider?.token) {
+        connectionRef.current = await publishStudentTracks({
+          url: provider.livekit_url,
+          token: provider.token,
+          cameraStream: cameraStreamRef.current,
+          screenStream: screenStreamRef.current,
+          onDisconnected: () => logEvent('provider_disconnected'),
+        });
+        if (connectionRef.current) await logEvent('provider_connected');
+      }
     } catch (providerError) {
       await logEvent('failure', { payload: { area: 'provider_connect', message: String(providerError) } });
       console.error('Failed to connect live monitoring provider', providerError);
     }
 
     setIsStreaming(true);
-    return data.session as ProctoringSession;
-  }, [loadSettings, logEvent, settings]);
+    return nextSession;
+  }, [loadSettings, logEvent, settings, testId, userId]);
 
   const stop = useCallback(async (reason = 'student_stop') => {
     const activeSession = sessionRef.current;
+    if (activeSession?.id) {
+      await logEvent('session_stopped', { payload: { reason } });
+    }
     connectionRef.current?.disconnect();
     connectionRef.current = null;
     stopStream(cameraStreamRef.current);
@@ -182,9 +265,23 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     setDevices(devicesRef.current);
     setIsStreaming(false);
     if (activeSession?.id) {
-      await supabase.functions.invoke('stop-proctoring-session', { body: { session_id: activeSession.id, reason } });
+      const { error } = await supabase
+        .from('monitoring_sessions')
+        .update({
+          status: 'ended',
+          ended_at: nowIso(),
+          metadata: {
+            ...(activeSession.metadata ?? {}),
+            ended_reason: reason,
+            devices: devicesRef.current,
+          },
+        })
+        .eq('id', String(activeSession.id));
+      if (error) console.warn('Failed to stop live monitoring session', error);
+      setSession(null);
+      sessionRef.current = null;
     }
-  }, []);
+  }, [logEvent]);
 
   useEffect(() => {
     if (!session?.id) return;
@@ -194,16 +291,28 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
 
   useEffect(() => {
     if (!session?.id) return;
-    const onBlur = () => logEvent('focus_lost');
-    const onFocus = () => logEvent('focus_returned');
-    const onVisibility = () => logEvent(document.hidden ? 'visibility_hidden' : 'visibility_visible');
+    const onBlur = () => {
+      void logEvent('focus_lost');
+      void logEvent('tab_switch', { payload: { source: 'blur' } });
+    };
+    const onFocus = () => { void logEvent('focus_returned'); };
+    const onVisibility = () => {
+      const eventType = document.hidden ? 'visibility_hidden' : 'visibility_visible';
+      void logEvent(eventType);
+      if (document.hidden) void logEvent('tab_switch', { payload: { source: 'visibilitychange' } });
+    };
+    const onFullscreen = () => {
+      void logEvent(document.fullscreenElement ? 'fullscreen_enter' : 'fullscreen_exit');
+    };
     window.addEventListener('blur', onBlur);
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
+    document.addEventListener('fullscreenchange', onFullscreen);
     return () => {
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
+      document.removeEventListener('fullscreenchange', onFullscreen);
     };
   }, [logEvent, session?.id]);
 
