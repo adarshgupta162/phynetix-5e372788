@@ -12,11 +12,18 @@ import type {
 
 const stopStream = (stream: MediaStream | null) => stream?.getTracks().forEach((track) => track.stop());
 const nowIso = () => new Date().toISOString();
+let fallbackIdCounter = 0;
 const createMonitoringId = (prefix: 'session' | 'event') => {
   const randomSuffix = typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function'
     ? Array.from(crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(36)).join('')
-    : String(Date.now());
+    : `${Date.now()}_${(fallbackIdCounter += 1)}`;
   return `${prefix}_${Date.now()}_${randomSuffix}`;
+};
+
+const isMonitoringSessionRecord = (value: unknown): value is MonitoringSessionRecord => {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Partial<MonitoringSessionRecord>;
+  return typeof row.id === 'string' && typeof row.attempt_id === 'string' && typeof row.started_at === 'string';
 };
 
 const buildSessionModel = (
@@ -199,8 +206,18 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       setIsStreaming(false);
       return null;
     }
+    if (!data) {
+      console.warn('Live monitoring session response missing data');
+      setIsStreaming(false);
+      return null;
+    }
+    if (!isMonitoringSessionRecord(data)) {
+      console.warn('Live monitoring session response has unexpected shape');
+      setIsStreaming(false);
+      return null;
+    }
 
-    const nextSession = buildSessionModel(data as MonitoringSessionRecord, { devices: deviceState, studentId, testId });
+    const nextSession = buildSessionModel(data, { devices: deviceState, studentId, testId });
     setSession(nextSession);
     sessionRef.current = nextSession;
     await logEvent('session_started', { payload: { devices: deviceState } });
