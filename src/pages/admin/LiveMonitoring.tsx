@@ -101,7 +101,7 @@ export default function LiveMonitoring() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [schemaDiagnostics, setSchemaDiagnostics] = useState<ProctoringSchemaDiagnostics>(null);
 
-  const load = useCallback(async (_sessionId?: string, options?: { toastOnSchemaError?: boolean }) => {
+  const load = useCallback(async (options?: { toastOnSchemaError?: boolean }) => {
     const toastOnSchemaError = options?.toastOnSchemaError ?? true;
     setLoading(true);
     const [sessionsResult, eventsResult] = await Promise.all([
@@ -139,7 +139,7 @@ export default function LiveMonitoring() {
     if (!schemaDiagnostics) return;
     const timer = window.setTimeout(() => {
       setRetrying(true);
-      load(undefined, { toastOnSchemaError: false }).catch(() => setRetrying(false));
+      load({ toastOnSchemaError: false }).catch(() => setRetrying(false));
     }, 10000);
     return () => window.clearTimeout(timer);
   }, [load, schemaDiagnostics]);
@@ -227,7 +227,9 @@ export default function LiveMonitoring() {
             const devices = readDevices(session);
             const lastHeartbeat = sessionEvents.find((event) => event.event_type === 'heartbeat')?.created_at ?? null;
             const stale = lastHeartbeat && Date.now() - new Date(lastHeartbeat).getTime() > 45000;
-            const testName = readSessionText(session, 'test_name') || readSessionText(session, 'test_id') || session.attempt_id;
+            const sessionTestName = readSessionText(session, 'test_name');
+            const sessionTestId = readSessionText(session, 'test_id');
+            const testName = sessionTestName || sessionTestId || session.attempt_id;
             return (
               <div key={session.id} className="glass-card p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div className="space-y-2">

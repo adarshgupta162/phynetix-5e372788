@@ -12,7 +12,12 @@ import type {
 
 const stopStream = (stream: MediaStream | null) => stream?.getTracks().forEach((track) => track.stop());
 const nowIso = () => new Date().toISOString();
-const createMonitoringId = (prefix: 'session' | 'event') => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+const createMonitoringId = (prefix: 'session' | 'event') => {
+  const randomSuffix = typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function'
+    ? Array.from(crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(36)).join('')
+    : String(Date.now());
+  return `${prefix}_${Date.now()}_${randomSuffix}`;
+};
 
 const buildSessionModel = (
   row: MonitoringSessionRecord,
@@ -185,14 +190,13 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
           devices: deviceState,
           test_id: testId ?? null,
           consent_accepted: true,
-          started_at: startedAt,
         },
       })
       .select('*')
       .single();
     if (error) {
       console.warn('Failed to start live monitoring session', error);
-      setIsStreaming(true);
+      setIsStreaming(false);
       return null;
     }
 
