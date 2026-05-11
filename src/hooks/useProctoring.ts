@@ -14,10 +14,11 @@ const stopStream = (stream: MediaStream | null) => stream?.getTracks().forEach((
 const nowIso = () => new Date().toISOString();
 let fallbackIdCounter = 0;
 const createMonitoringId = (prefix: 'session' | 'event') => {
+  const timestamp = Date.now();
   const randomSuffix = typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function'
     ? Array.from(crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(36)).join('')
-    : `${Date.now()}_${(fallbackIdCounter += 1)}`;
-  return `${prefix}_${Date.now()}_${randomSuffix}`;
+    : `${timestamp}_${(fallbackIdCounter += 1)}`;
+  return `${prefix}_${timestamp}_${randomSuffix}`;
 };
 
 const isMonitoringSessionRecord = (value: unknown): value is MonitoringSessionRecord => {
