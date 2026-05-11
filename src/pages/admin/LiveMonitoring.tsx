@@ -105,7 +105,7 @@ export default function LiveMonitoring() {
     const toastOnSchemaError = options?.toastOnSchemaError ?? true;
     setLoading(true);
     const [sessionsResult, eventsResult] = await Promise.all([
-      supabase.from('monitoring_sessions').select('*').order('started_at', { ascending: false }),
+      supabase.from('monitoring_sessions').select('*').eq('status', 'active').order('started_at', { ascending: false }),
       supabase.from('monitoring_events').select('*').order('created_at', { ascending: false }).limit(300),
     ]);
 
