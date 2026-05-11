@@ -12,14 +12,6 @@ import type {
 
 const stopStream = (stream: MediaStream | null) => stream?.getTracks().forEach((track) => track.stop());
 const nowIso = () => new Date().toISOString();
-let fallbackIdCounter = 0;
-const createMonitoringId = (prefix: 'session' | 'event') => {
-  const timestamp = Date.now();
-  const randomSuffix = typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function'
-    ? Array.from(crypto.getRandomValues(new Uint32Array(2))).map((value) => value.toString(36)).join('')
-    : `${timestamp}_${(fallbackIdCounter += 1)}`;
-  return `${prefix}_${timestamp}_${randomSuffix}`;
-};
 
 const isMonitoringSessionRecord = (value: unknown): value is MonitoringSessionRecord => {
   if (!value || typeof value !== 'object') return false;
@@ -48,6 +40,8 @@ const buildSessionModel = (
   failure_reason: null,
   metadata: row.metadata ?? {},
 });
+
+type ProctoringStartResult = ProctoringSession & { session: ProctoringSession };
 
 export function useProctoring(testId?: string | null, userId?: string | null) {
   const [settings, setSettings] = useState<ProctoringSettings | null>(null);
@@ -79,7 +73,6 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const activeSession = sessionRef.current;
     if (!activeSession?.id) return;
     const { error } = await supabase.from('monitoring_events').insert({
-      id: createMonitoringId('event'),
       session_id: String(activeSession.id),
       event_type: eventType,
       question_id: event?.questionId ?? null,
@@ -175,24 +168,19 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     return { settings: effective, devices: nextDevices, failures };
   }, [loadSettings, logEvent, settings, testId]);
 
-  const start = useCallback(async (attemptId: string, metadata: Record<string, unknown> = {}) => {
+  const start = useCallback(async (attemptId: string, metadata: Record<string, unknown> = {}): Promise<ProctoringStartResult | null> => {
     if (!attemptId) return null;
     const effective = settings ?? await loadSettings();
     if (!effective?.enabled) return null;
 
     const studentId = userId ?? (await supabase.auth.getUser()).data.user?.id ?? null;
     const deviceState = devicesRef.current;
-    const sessionId = createMonitoringId('session');
-    const startedAt = nowIso();
     const { data, error } = await supabase
       .from('monitoring_sessions')
       .insert({
-        id: sessionId,
         attempt_id: String(attemptId),
         student_id: studentId ? String(studentId) : null,
         status: 'active',
-        started_at: startedAt,
-        ended_at: null,
         metadata: {
           ...metadata,
           devices: deviceState,
@@ -247,7 +235,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     }
 
     setIsStreaming(true);
-    return nextSession;
+    return { ...nextSession, session: nextSession };
   }, [loadSettings, logEvent, settings, testId, userId]);
 
   const stop = useCallback(async (reason = 'student_stop') => {
