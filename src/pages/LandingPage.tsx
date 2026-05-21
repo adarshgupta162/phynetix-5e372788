@@ -210,7 +210,7 @@ export default function LandingPage() {
               </Button>
             </Link>
             <Link to="/auth" className="hidden md:block">
-              <Button size="sm">Get Early Access</Button>
+              <Button size="sm">Register</Button>
             </Link>
             <button
               className="md:hidden text-muted-foreground hover:text-foreground transition-colors"
@@ -258,7 +258,7 @@ export default function LandingPage() {
                 </Link>
                 <Link to="/auth">
                   <Button size="sm" className="w-full">
-                    Get Early Access
+                    Sign Up
                   </Button>
                 </Link>
               </div>
