@@ -131,6 +131,8 @@ const faqs = [
 
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
@@ -486,13 +488,29 @@ export default function LandingPage() {
             className="max-w-4xl mx-auto"
           >
             {/* Replace this div with an actual screenshot of your CBT interface */}
-            <div className="rounded-xl border border-border/40 overflow-hidden bg-card/30 aspect-video flex flex-col items-center justify-center gap-3 text-muted-foreground">
-              <Brain style={{ width: "40px", height: "40px" }} className="text-primary/40" />
-              <p className="text-sm font-medium">CBT Interface Preview</p>
-              <p className="text-xs text-muted-foreground/60 max-w-xs text-center">
-                Replace this with a screenshot of your actual test interface
-              </p>
-            </div>
+            {/* CBT Interface with fallback */}
+<div className="rounded-xl overflow-hidden border border-white/[0.08] shadow-2xl">
+  {(!imgLoaded || imgError) && (
+    <div className="rounded-xl border border-border/40 bg-card/30 aspect-video flex flex-col items-center justify-center gap-3 text-muted-foreground">
+      <Brain style={{ width: "40px", height: "40px" }} className="text-primary/40" />
+      <p className="text-sm font-medium">CBT Interface Preview</p>
+      <p className="text-xs text-muted-foreground/60 max-w-xs text-center">
+        NTA-exact test interface with section tabs and question palette
+      </p>
+    </div>
+  )}
+  {!imgError && (
+    <img
+      src="cbt-preview.png"
+      alt="Phynetix CBT Interface"
+      className="w-full h-auto block"
+      style={{ display: imgLoaded ? "block" : "none" }}
+      onLoad={() => setImgLoaded(true)}
+      onError={() => setImgError(true)}
+      draggable={false}
+    />
+  )}
+</div>
           </motion.div>
         </div>
       </section>
