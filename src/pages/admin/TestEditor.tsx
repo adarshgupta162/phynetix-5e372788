@@ -103,17 +103,17 @@ export default function TestEditor() {
   // Auto-save timer
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const getSectionQuestions = useCallback((sectionId: string, sourceQuestions: Question[] = questions) => {
+  const getSectionQuestions = useCallback((sectionId: string, sourceQuestions: Question[]) => {
     return sourceQuestions
       .filter((q) => q.section_id === sectionId)
       .sort((a, b) => a.question_number - b.question_number);
-  }, [questions]);
+  }, []);
 
-  const getNextQuestionNumber = useCallback((sectionId: string, sourceQuestions: Question[] = questions) => {
+  const getNextQuestionNumber = useCallback((sectionId: string, sourceQuestions: Question[]) => {
     const sectionQuestions = getSectionQuestions(sectionId, sourceQuestions);
     if (!sectionQuestions.length) return 1;
     return Math.max(...sectionQuestions.map((q) => q.question_number || 0)) + 1;
-  }, [getSectionQuestions, questions]);
+  }, [getSectionQuestions]);
 
   const renumberSectionQuestions = useCallback(async (sectionId: string, sourceQuestions: Question[]) => {
     const sectionQuestions = getSectionQuestions(sectionId, sourceQuestions);
@@ -313,8 +313,46 @@ export default function TestEditor() {
     const examType = test?.exam_type || 'jee_mains';
     const scheme = MARKING_SCHEMES[examType as keyof typeof MARKING_SCHEMES]?.[section.section_type as keyof typeof MARKING_SCHEMES['jee_mains']];
     
-    const nextQuestionNumber = getNextQuestionNumber(activeSectionId);
-    const sectionQuestionCount = getSectionQuestions(activeSectionId).length;
+    const sectionQuestions = getSectionQuestions(activeSectionId, questions);
+    const afterQuestion = afterQuestionId
+      ? sectionQuestions.find((q) => q.id === afterQuestionId)
+      : null;
+    const questionNumber = afterQuestion
+      ? afterQuestion.question_number + 1
+      : getNextQuestionNumber(activeSectionId, questions);
+
+    let nextQuestionsState = questions;
+    if (afterQuestion) {
+      const originalById = new Map(sectionQuestions.map((q) => [q.id, q]));
+      const shiftedQuestions = questions.map((q) => {
+        if (q.section_id !== activeSectionId || q.question_number < questionNumber) return q;
+        const newQuestionNumber = q.question_number + 1;
+        return { ...q, question_number: newQuestionNumber, order_index: newQuestionNumber - 1 };
+      });
+
+      const shiftedSectionQuestions = shiftedQuestions.filter((q) => q.section_id === activeSectionId);
+      const shiftTargets = shiftedSectionQuestions.filter((q) => {
+        const originalQuestion = originalById.get(q.id);
+        return !!originalQuestion && (
+          originalQuestion.question_number !== q.question_number ||
+          originalQuestion.order_index !== q.order_index
+        );
+      });
+
+      if (shiftTargets.length) {
+        await Promise.all(
+          shiftTargets.map((q) =>
+            supabase
+              .from('test_section_questions')
+              .update({ question_number: q.question_number, order_index: q.order_index })
+              .eq('id', q.id)
+          )
+        );
+      }
+
+      nextQuestionsState = shiftedQuestions;
+      setQuestions(shiftedQuestions);
+    }
 
     const defaultAnswer = section.section_type === 'multiple_choice' ? [] : '';
 
@@ -323,17 +361,17 @@ export default function TestEditor() {
       .insert([{
         test_id: testId,
         section_id: activeSectionId,
-        question_number: nextQuestionNumber,
+        question_number: questionNumber,
         correct_answer: defaultAnswer,
         marks: scheme?.marks || 4,
         negative_marks: scheme?.negative || 0,
-        order_index: sectionQuestionCount
+        order_index: questionNumber - 1
       }])
       .select()
       .single();
 
     if (!error && data) {
-      setQuestions([...questions, data]);
+      setQuestions([...nextQuestionsState, data]);
       setActiveQuestionId(data.id);
       toast({ title: `Question ${data.question_number} added` });
     }
@@ -350,7 +388,7 @@ export default function TestEditor() {
     setQuestions(renumbered);
     setDeletedQuestions((prev) => [
       { ...questionToDelete, deleted_at: Date.now() },
-      ...prev
+      ...prev.slice(0, 99)
     ]);
     
     if (activeQuestionId === questionId) {
@@ -369,13 +407,13 @@ export default function TestEditor() {
       .insert([{
         test_id: testId,
         section_id: original.section_id,
-        question_number: getNextQuestionNumber(original.section_id),
+        question_number: getNextQuestionNumber(original.section_id, questions),
         question_text: original.question_text,
         correct_answer: original.correct_answer,
         options: original.options,
         marks: original.marks,
         negative_marks: original.negative_marks,
-        order_index: getSectionQuestions(original.section_id).length
+        order_index: getSectionQuestions(original.section_id, questions).length
       }])
       .select()
       .single();
@@ -406,14 +444,14 @@ export default function TestEditor() {
       .insert([{
         test_id: testId,
         section_id: targetSectionId,
-        question_number: getNextQuestionNumber(targetSectionId),
+        question_number: getNextQuestionNumber(targetSectionId, questions),
         question_text: deletedQuestion.question_text,
         correct_answer: deletedQuestion.correct_answer,
         options: deletedQuestion.options,
         marks: deletedQuestion.marks,
         negative_marks: deletedQuestion.negative_marks,
         pdf_page: deletedQuestion.pdf_page,
-        order_index: getSectionQuestions(targetSectionId).length,
+        order_index: getSectionQuestions(targetSectionId, questions).length,
         is_bonus: deletedQuestion.is_bonus
       }])
       .select()

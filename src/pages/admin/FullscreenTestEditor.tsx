@@ -146,17 +146,17 @@ export default function FullscreenTestEditor() {
   const [showMigrateDialog, setShowMigrateDialog] = useState(false);
   const [migrateLoading, setMigrateLoading] = useState(false);
 
-  const getSectionQuestions = useCallback((sectionId: string, sourceQuestions: Question[] = questions) => {
+  const getSectionQuestions = useCallback((sectionId: string, sourceQuestions: Question[]) => {
     return sourceQuestions
       .filter((q) => q.section_id === sectionId)
       .sort((a, b) => a.question_number - b.question_number);
-  }, [questions]);
+  }, []);
 
-  const getNextQuestionNumber = useCallback((sectionId: string, sourceQuestions: Question[] = questions) => {
+  const getNextQuestionNumber = useCallback((sectionId: string, sourceQuestions: Question[]) => {
     const sectionQuestions = getSectionQuestions(sectionId, sourceQuestions);
     if (!sectionQuestions.length) return 1;
     return Math.max(...sectionQuestions.map((q) => q.question_number || 0)) + 1;
-  }, [getSectionQuestions, questions]);
+  }, [getSectionQuestions]);
 
   const renumberSectionQuestions = useCallback(async (sectionId: string, sourceQuestions: Question[]) => {
     const sectionQuestions = getSectionQuestions(sectionId, sourceQuestions);
@@ -367,8 +367,8 @@ export default function FullscreenTestEditor() {
 
     const examType = test?.exam_type || 'jee_mains';
     const scheme = MARKING_SCHEMES[examType as keyof typeof MARKING_SCHEMES]?.[section.section_type as keyof typeof MARKING_SCHEMES['jee_mains']];
-    const nextQuestionNumber = getNextQuestionNumber(activeSectionId);
-    const sectionQuestionCount = getSectionQuestions(activeSectionId).length;
+    const nextQuestionNumber = getNextQuestionNumber(activeSectionId, questions);
+    const sectionQuestionCount = getSectionQuestions(activeSectionId, questions).length;
 
     const defaultAnswer = section.section_type === 'multiple_choice' ? [] : '';
 
@@ -399,7 +399,7 @@ export default function FullscreenTestEditor() {
     if (!localQuestion) return;
     
     await supabase.from('test_section_questions').delete().eq('id', localQuestion.id);
-    setDeletedQuestions((prev) => [{ ...localQuestion, deleted_at: Date.now() }, ...prev]);
+    setDeletedQuestions((prev) => [{ ...localQuestion, deleted_at: Date.now() }, ...prev.slice(0, 99)]);
 
     const remaining = questions.filter(q => q.id !== localQuestion.id);
     const renumbered = await renumberSectionQuestions(localQuestion.section_id, remaining);
@@ -434,8 +434,8 @@ export default function FullscreenTestEditor() {
       }
 
       const section = sections.find(s => s.id === activeSectionId);
-      const nextQuestionNumber = getNextQuestionNumber(activeSectionId);
-      const sectionQuestionCount = getSectionQuestions(activeSectionId).length;
+      const nextQuestionNumber = getNextQuestionNumber(activeSectionId, questions);
+      const sectionQuestionCount = getSectionQuestions(activeSectionId, questions).length;
 
       const { data: newQ, error: insertError } = await supabase
         .from('test_section_questions')
@@ -541,8 +541,8 @@ export default function FullscreenTestEditor() {
     if (!activeSectionId || !testId) return;
 
     try {
-      const nextQuestionNumber = getNextQuestionNumber(activeSectionId);
-      const sectionQuestionCount = getSectionQuestions(activeSectionId).length;
+      const nextQuestionNumber = getNextQuestionNumber(activeSectionId, questions);
+      const sectionQuestionCount = getSectionQuestions(activeSectionId, questions).length;
       const { data: newQ, error: insertError } = await supabase
         .from('test_section_questions')
         .insert([{
@@ -588,8 +588,8 @@ export default function FullscreenTestEditor() {
     if (!activeSectionId || !testId) return;
 
     try {
-      const startNumber = getNextQuestionNumber(activeSectionId);
-      const sectionQuestionCount = getSectionQuestions(activeSectionId).length;
+      const startNumber = getNextQuestionNumber(activeSectionId, questions);
+      const sectionQuestionCount = getSectionQuestions(activeSectionId, questions).length;
       const rows = libQuestions.map((lq, i) => ({
         test_id: testId,
         section_id: activeSectionId,
@@ -655,14 +655,14 @@ export default function FullscreenTestEditor() {
       .insert([{
         test_id: testId,
         section_id: targetSectionId,
-        question_number: getNextQuestionNumber(targetSectionId),
+        question_number: getNextQuestionNumber(targetSectionId, questions),
         question_text: deletedQuestion.question_text,
         correct_answer: deletedQuestion.correct_answer,
         options: deletedQuestion.options,
         marks: deletedQuestion.marks,
         negative_marks: deletedQuestion.negative_marks,
         pdf_page: deletedQuestion.pdf_page,
-        order_index: getSectionQuestions(targetSectionId).length,
+        order_index: getSectionQuestions(targetSectionId, questions).length,
         is_bonus: deletedQuestion.is_bonus,
         image_url: deletedQuestion.image_url,
         solution_text: deletedQuestion.solution_text,
