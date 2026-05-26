@@ -36,6 +36,7 @@ import { QuestionImageUpload } from "@/components/admin/QuestionImageUpload";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { LibraryPickerModal } from "@/components/admin/LibraryPickerModal";
 import { cn } from "@/lib/utils";
+import { getChaptersForSubject, getTopicsForChapter } from "@/lib/jeeData";
 
 interface Test {
   id: string;
@@ -693,6 +694,11 @@ export default function FullscreenTestEditor() {
     .sort((a, b) => a.question_number - b.question_number);
 
   const activeSection = sections.find(s => s.id === activeSectionId);
+  const activeSubject = subjects.find(s => s.id === activeSection?.subject_id);
+  const availableChapters = activeSubject ? getChaptersForSubject(activeSubject.name) : [];
+  const availableTopics = (activeSubject && localQuestion?.chapter)
+    ? getTopicsForChapter(activeSubject.name, localQuestion.chapter)
+    : [];
 
   if (isLoading) {
     return (
@@ -844,21 +850,36 @@ export default function FullscreenTestEditor() {
                   <div className="grid grid-cols-4 gap-3">
                     <div>
                       <Label className="text-xs">Chapter</Label>
-                      <Input
+                      <Select
                         value={localQuestion.chapter || ''}
-                        onChange={(e) => setLocalQuestion({ ...localQuestion, chapter: e.target.value })}
-                        placeholder="Chapter"
-                        className="h-8 text-sm"
-                      />
+                        onValueChange={(value) => setLocalQuestion({ ...localQuestion, chapter: value, topic: '' })}
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder="Select chapter" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {availableChapters.map((chapter) => (
+                            <SelectItem key={chapter} value={chapter}>{chapter}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label className="text-xs">Topic</Label>
-                      <Input
+                      <Select
                         value={localQuestion.topic || ''}
-                        onChange={(e) => setLocalQuestion({ ...localQuestion, topic: e.target.value })}
-                        placeholder="Topic"
-                        className="h-8 text-sm"
-                      />
+                        onValueChange={(value) => setLocalQuestion({ ...localQuestion, topic: value })}
+                        disabled={!localQuestion.chapter}
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder={localQuestion.chapter ? "Select topic" : "Select chapter first"} />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {availableTopics.map((topic) => (
+                            <SelectItem key={topic} value={topic}>{topic}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label className="text-xs">Difficulty</Label>
