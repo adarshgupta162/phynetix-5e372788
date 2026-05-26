@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -36,6 +36,7 @@ import { QuestionImageUpload } from "@/components/admin/QuestionImageUpload";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
 import { LibraryPickerModal } from "@/components/admin/LibraryPickerModal";
 import { cn } from "@/lib/utils";
+import { getChaptersForSubject, getTopicsForChapter } from "@/lib/jeeData";
 
 interface Test {
   id: string;
@@ -693,6 +694,26 @@ export default function FullscreenTestEditor() {
     .sort((a, b) => a.question_number - b.question_number);
 
   const activeSection = sections.find(s => s.id === activeSectionId);
+  const activeSubject = useMemo(
+    () => subjects.find(s => s.id === activeSection?.subject_id),
+    [subjects, activeSection?.subject_id]
+  );
+  const availableChapters = useMemo(
+    () => (activeSubject ? getChaptersForSubject(activeSubject.name) : []),
+    [activeSubject]
+  );
+  const availableTopics = useMemo(
+    () => (activeSubject && localQuestion?.chapter ? getTopicsForChapter(activeSubject.name, localQuestion.chapter) : []),
+    [activeSubject, localQuestion?.chapter]
+  );
+
+  const handleChapterChange = (value: string) => {
+    setLocalQuestion(prev => (prev ? { ...prev, chapter: value, topic: '' } : prev));
+  };
+
+  const handleTopicChange = (value: string) => {
+    setLocalQuestion(prev => (prev ? { ...prev, topic: value } : prev));
+  };
 
   if (isLoading) {
     return (
@@ -844,21 +865,36 @@ export default function FullscreenTestEditor() {
                   <div className="grid grid-cols-4 gap-3">
                     <div>
                       <Label className="text-xs">Chapter</Label>
-                      <Input
+                      <Select
                         value={localQuestion.chapter || ''}
-                        onChange={(e) => setLocalQuestion({ ...localQuestion, chapter: e.target.value })}
-                        placeholder="Chapter"
-                        className="h-8 text-sm"
-                      />
+                        onValueChange={handleChapterChange}
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder="Select chapter" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {availableChapters.map((chapter) => (
+                            <SelectItem key={chapter} value={chapter}>{chapter}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label className="text-xs">Topic</Label>
-                      <Input
+                      <Select
                         value={localQuestion.topic || ''}
-                        onChange={(e) => setLocalQuestion({ ...localQuestion, topic: e.target.value })}
-                        placeholder="Topic"
-                        className="h-8 text-sm"
-                      />
+                        onValueChange={handleTopicChange}
+                        disabled={!localQuestion.chapter}
+                      >
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder={localQuestion.chapter ? "Select topic" : "Select chapter first"} />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {availableTopics.map((topic) => (
+                            <SelectItem key={topic} value={topic}>{topic}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div>
                       <Label className="text-xs">Difficulty</Label>
