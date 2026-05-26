@@ -982,6 +982,7 @@ export default function NormalTestInterface() {
               <button
                 onMouseEnter={() => setHoveredTestTooltip(true)}
                 onMouseLeave={() => setHoveredTestTooltip(false)}
+                aria-label="View test status summary"
                 style={{ width: 16, height: 16, borderRadius: "50%", border: "none", background: C.secActive, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}
               >
                 <Info size={10} />
