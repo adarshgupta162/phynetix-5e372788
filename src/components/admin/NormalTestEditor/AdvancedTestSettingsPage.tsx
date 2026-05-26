@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { ProctoringSettingsCard } from "@/components/admin/proctoring/ProctoringSettingsCard";
+import { TestUserOverridesCard } from "@/components/admin/NormalTestEditor/TestUserOverridesCard";
 
 interface Test {
   id: string;
@@ -19,6 +21,7 @@ interface Test {
   instructions_json: any;
   scheduled_at?: string | null;
   solution_reopen_mode?: boolean | null;
+  result_release_delay_minutes?: number;
 }
 
 interface AdvancedSettingsPageProps {
@@ -141,7 +144,8 @@ export function AdvancedTestSettingsPage({
       show_solutions: localTest.show_solutions,
       solution_reopen_mode: localTest.solution_reopen_mode,
       scheduled_at: fromLocalDateTimeInputValue(scheduledAtLocal),
-      instructions_json: localInstructions
+      instructions_json: localInstructions,
+      result_release_delay_minutes: localTest.result_release_delay_minutes,
     });
   };
 
@@ -265,6 +269,16 @@ export function AdvancedTestSettingsPage({
               onCheckedChange={(checked) => setLocalInstructions({ ...localInstructions, enableCalculator: checked })}
             />
           </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label>Result release delay (minutes)</Label>
+            <Input
+              type="number"
+              min={0}
+              max={1440}
+              value={localTest.result_release_delay_minutes ?? 0}
+              onChange={(e) => setLocalTest({ ...localTest, result_release_delay_minutes: Number(e.target.value) || 0 })}
+            />
+          </div>
         </CardContent>
       </Card>
 
@@ -383,6 +397,10 @@ export function AdvancedTestSettingsPage({
           </div>
         </CardContent>
       </Card>
+
+      <ProctoringSettingsCard testId={test.id} />
+
+      <TestUserOverridesCard testId={test.id} />
 
       <Card>
         <CardHeader>

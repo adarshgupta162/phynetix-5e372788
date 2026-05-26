@@ -30,7 +30,7 @@ serve(async (req) => {
     // Join with tests to get duration_minutes, then check if started_at + duration has passed
     const { data: expiredAttempts, error: fetchError } = await supabaseAdmin
       .from("test_attempts")
-      .select("id, test_id, user_id, started_at, answers, time_per_question")
+      .select("id, test_id, user_id, started_at, answers, time_per_question, extra_time_minutes, result_release_delay_minutes")
       .is("completed_at", null)
       .eq("awaiting_result", false);
 
@@ -62,7 +62,8 @@ serve(async (req) => {
       if (!test) continue;
 
       const startedAt = new Date(attempt.started_at).getTime();
-      const expiresAt = startedAt + test.duration_minutes * 60 * 1000;
+      const extraMinutes = attempt.extra_time_minutes ?? 0;
+      const expiresAt = startedAt + (test.duration_minutes + extraMinutes) * 60 * 1000;
       const now = Date.now();
 
       // Add 30s grace period
@@ -71,7 +72,11 @@ serve(async (req) => {
       console.log(`[auto-submit] Auto-submitting attempt=${attempt.id} test=${attempt.test_id} user=${attempt.user_id}`);
 
       const answers = (attempt.answers as Record<string, any>) || {};
-      const timeTakenSeconds = test.duration_minutes * 60;
+      const timeTakenSeconds = (test.duration_minutes + extraMinutes) * 60;
+      const delayMinutes = attempt.result_release_delay_minutes ?? 0;
+      const resultAvailableAt = delayMinutes > 0
+        ? new Date(startedAt + delayMinutes * 60 * 1000).toISOString()
+        : null;
 
       // Grade the test
       let score = 0;
@@ -161,6 +166,8 @@ serve(async (req) => {
           total_marks: totalMarks,
           time_taken_seconds: timeTakenSeconds,
           completed_at: new Date().toISOString(),
+          last_submitted_at: new Date().toISOString(),
+          result_available_at: resultAvailableAt,
           rank,
           percentile,
         })

@@ -270,6 +270,14 @@ export default function AdminTests() {
                       <BarChart3 className="w-4 h-4 mr-1" />
                       Analytics
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.location.href = `/admin/test-management/${test.id}`}
+                    >
+                      <ClipboardList className="w-4 h-4 mr-1" />
+                      Manage
+                    </Button>
                     <button
                       onClick={() => window.location.href = `/admin/fullscreen-editor/${test.id}`}
                       className="p-2 rounded-lg hover:bg-secondary transition-colors"

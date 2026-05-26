@@ -72,7 +72,7 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    const { attempt_id, answers, time_taken_seconds } = await req.json();
+    const { attempt_id, answers, time_taken_seconds, force_submit } = await req.json();
     if (!attempt_id) {
       throw new Error("attempt_id is required");
     }
@@ -81,7 +81,7 @@ serve(async (req) => {
 
     const { data: attempt, error: attemptError } = await supabaseClient
       .from("test_attempts")
-      .select("id, test_id, user_id, completed_at")
+      .select("id, test_id, user_id, completed_at, submit_disabled, started_at, result_release_delay_minutes")
       .eq("id", attempt_id)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -94,6 +94,10 @@ serve(async (req) => {
     if (attempt.completed_at) {
       console.log("[submit-test] Attempt already completed");
       throw new Error("Test already submitted");
+    }
+
+    if (attempt.submit_disabled && !force_submit) {
+      throw new Error("Submission is disabled for this attempt. Please contact the administrator.");
     }
 
     const { data: test } = await supabaseAdmin
@@ -324,6 +328,11 @@ serve(async (req) => {
       percentile = Math.round((scoresBelow / scoresWithCurrent.length) * 100 * 10) / 10;
     }
 
+    const delayMinutes = attempt.result_release_delay_minutes ?? 0;
+    const resultAvailableAt = delayMinutes > 0
+      ? new Date(new Date(attempt.started_at).getTime() + delayMinutes * 60 * 1000).toISOString()
+      : null;
+
     const { error: updateError } = await supabaseClient
       .from("test_attempts")
       .update({
@@ -332,6 +341,8 @@ serve(async (req) => {
         total_marks: totalMarks,
         time_taken_seconds,
         completed_at: new Date().toISOString(),
+        last_submitted_at: new Date().toISOString(),
+        result_available_at: resultAvailableAt,
         rank,
         percentile,
       })

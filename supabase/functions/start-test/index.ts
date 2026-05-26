@@ -38,7 +38,7 @@ serve(async (req) => {
     // Check if user has already attempted this test
     const { data: existingAttempt, error: existingError } = await supabaseClient
       .from("test_attempts")
-      .select("id, completed_at, started_at, fullscreen_exit_count, answers, time_per_question")
+      .select("id, completed_at, started_at, fullscreen_exit_count, answers, time_per_question, extra_time_minutes, submit_disabled, result_release_delay_minutes, result_available_at")
       .eq("test_id", test_id)
       .eq("user_id", user.id)
       .maybeSingle();
@@ -62,7 +62,8 @@ serve(async (req) => {
       const startedAt = new Date(existingAttempt.started_at).getTime();
       const now = Date.now();
       const elapsedSeconds = Math.floor((now - startedAt) / 1000);
-      const totalSeconds = test.duration_minutes * 60;
+      const extraMinutes = existingAttempt.extra_time_minutes ?? 0;
+      const totalSeconds = (test.duration_minutes + extraMinutes) * 60;
       const remainingSeconds = Math.max(0, totalSeconds - elapsedSeconds);
 
       return new Response(
@@ -74,6 +75,10 @@ serve(async (req) => {
           fullscreen_exit_count: existingAttempt.fullscreen_exit_count || 0,
           existing_answers: existingAttempt.answers || {},
           existing_time_per_question: existingAttempt.time_per_question || {},
+          submit_disabled: existingAttempt.submit_disabled ?? false,
+          extra_time_minutes: extraMinutes,
+          result_release_delay_minutes: existingAttempt.result_release_delay_minutes ?? 0,
+          result_available_at: existingAttempt.result_available_at ?? null,
           is_resume: true,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -88,7 +93,7 @@ serve(async (req) => {
 
     const { data: test, error: testError } = await supabaseClient
       .from("tests")
-      .select("id, name, duration_minutes, is_published")
+      .select("id, name, duration_minutes, is_published, result_release_delay_minutes")
       .eq("id", test_id)
       .eq("is_published", true)
       .maybeSingle();
@@ -130,6 +135,25 @@ serve(async (req) => {
       }
     }
 
+    let overrideExtraTime = 0;
+    let overrideSubmitDisabled = false;
+    let overrideResultDelay = test.result_release_delay_minutes ?? 0;
+
+    const { data: override, error: overrideError } = await supabaseClient
+      .from("test_user_overrides")
+      .select("extra_time_minutes, submit_disabled, result_release_delay_minutes")
+      .eq("test_id", test_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (overrideError) {
+      console.warn("Failed to load test overrides", overrideError);
+    } else if (override) {
+      overrideExtraTime = override.extra_time_minutes ?? 0;
+      overrideSubmitDisabled = override.submit_disabled ?? false;
+      overrideResultDelay = override.result_release_delay_minutes ?? overrideResultDelay;
+    }
+
     const { data: attempt, error: attemptError } = await supabaseClient
       .from("test_attempts")
       .insert({
@@ -137,6 +161,9 @@ serve(async (req) => {
         user_id: user.id,
         started_at: new Date().toISOString(),
         answers: {},
+        extra_time_minutes: overrideExtraTime,
+        submit_disabled: overrideSubmitDisabled,
+        result_release_delay_minutes: overrideResultDelay ?? 0,
       })
       .select()
       .single();
@@ -153,6 +180,9 @@ serve(async (req) => {
         attempt_id: attempt.id,
         test_name: test.name,
         duration_minutes: test.duration_minutes,
+        extra_time_minutes: overrideExtraTime,
+        submit_disabled: overrideSubmitDisabled,
+        result_release_delay_minutes: overrideResultDelay ?? 0,
         is_resume: false,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

@@ -54,6 +54,8 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const connectionRef = useRef<LiveKitConnection | null>(null);
   const sessionRef = useRef<ProctoringSession | null>(null);
   const devicesRef = useRef<ProctoringDeviceState>({ camera: false, microphone: false, screen: false });
+  const screenshotTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { devicesRef.current = devices; }, [devices]);
@@ -81,6 +83,65 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       created_at: nowIso(),
     });
     if (error) console.warn('Failed to log proctoring event', error);
+  }, []);
+
+  const captureScreenshot = useCallback(async () => {
+    const activeSession = sessionRef.current;
+    if (!activeSession?.id) return;
+    if (!screenStreamRef.current) return;
+    const track = screenStreamRef.current.getVideoTracks()[0];
+    if (!track) return;
+
+    if (!screenVideoRef.current) {
+      const video = document.createElement('video');
+      video.srcObject = new MediaStream([track]);
+      video.muted = true;
+      video.playsInline = true;
+      try {
+        await video.play();
+      } catch (error) {
+        console.warn('Unable to start screen video for screenshot capture', error);
+        return;
+      }
+      screenVideoRef.current = video;
+    }
+
+    const video = screenVideoRef.current;
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.75));
+    if (!blob) return;
+
+    const path = `screenshots/${activeSession.id}/${Date.now()}.jpg`;
+    const { error: uploadError } = await supabase.storage
+      .from('monitoring-screenshots')
+      .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+    if (uploadError) {
+      console.warn('Failed to upload screenshot', uploadError);
+      return;
+    }
+
+    const { error: insertError } = await supabase
+      .from('monitoring_screenshots')
+      .insert({
+        session_id: activeSession.id,
+        attempt_id: activeSession.attempt_id,
+        test_id: activeSession.test_id,
+        user_id: activeSession.user_id,
+        storage_path: path,
+        metadata: { width: canvas.width, height: canvas.height },
+        captured_at: nowIso(),
+      });
+    if (insertError) {
+      console.warn('Failed to record screenshot metadata', insertError);
+    }
   }, []);
 
   const prepare = useCallback(async () => {
@@ -141,6 +202,14 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         screenStreamRef.current.getTracks().forEach((track) => {
           track.onended = () => logEvent('screen_share_stopped', { payload: { label: track.label, kind: track.kind } });
         });
+        if (screenStreamRef.current.getVideoTracks().length > 0) {
+          const video = document.createElement('video');
+          video.srcObject = screenStreamRef.current;
+          video.muted = true;
+          video.playsInline = true;
+          video.play().catch((error) => console.warn('Unable to play screen stream for screenshots', error));
+          screenVideoRef.current = video;
+        }
       }
     } catch (error) {
       failures.push('screen');
@@ -279,6 +348,19 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
 
   useEffect(() => {
     if (!session?.id) return;
+    if (!settings?.screenshot_enabled) return;
+    const seconds = Math.max(10, settings.screenshot_interval_seconds ?? 120);
+    screenshotTimerRef.current = window.setInterval(() => {
+      captureScreenshot().catch((error) => console.warn('Screenshot capture failed', error));
+    }, seconds * 1000);
+    return () => {
+      if (screenshotTimerRef.current) window.clearInterval(screenshotTimerRef.current);
+      screenshotTimerRef.current = null;
+    };
+  }, [captureScreenshot, session?.id, settings?.screenshot_enabled, settings?.screenshot_interval_seconds]);
+
+  useEffect(() => {
+    if (!session?.id) return;
     const onBlur = () => {
       void logEvent('focus_lost');
       void logEvent('tab_switch', { payload: { source: 'blur' } });
@@ -305,9 +387,16 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   }, [logEvent, session?.id]);
 
   useEffect(() => () => {
+    if (screenshotTimerRef.current) window.clearInterval(screenshotTimerRef.current);
+    screenshotTimerRef.current = null;
     connectionRef.current?.disconnect();
     stopStream(cameraStreamRef.current);
     stopStream(screenStreamRef.current);
+    if (screenVideoRef.current) {
+      screenVideoRef.current.pause();
+      screenVideoRef.current.srcObject = null;
+      screenVideoRef.current = null;
+    }
   }, []);
 
   return { settings, session, devices, isPreparing, isStreaming, loadSettings, prepare, start, stop, logEvent };

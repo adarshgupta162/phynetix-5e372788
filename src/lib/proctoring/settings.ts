@@ -13,6 +13,8 @@ export const DEFAULT_PROCTORING_SETTINGS: ProctoringSettings = {
   retention_days: 30,
   instructions: null,
   allow_specific_users_only: false,
+  screenshot_enabled: false,
+  screenshot_interval_seconds: 120,
 };
 
 export async function loadEffectiveProctoringSettings(testId: string, userId?: string | null): Promise<ProctoringSettings> {
@@ -36,6 +38,8 @@ export async function loadEffectiveProctoringSettings(testId: string, userId?: s
     retention_days: settings.retention_days ?? 30,
     instructions: settings.instructions ?? null,
     allow_specific_users_only: settings.allow_specific_users_only ?? false,
+    screenshot_enabled: settings.screenshot_enabled ?? false,
+    screenshot_interval_seconds: settings.screenshot_interval_seconds ?? 120,
   };
 
   if (userId) {

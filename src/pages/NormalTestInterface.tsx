@@ -159,6 +159,7 @@ export default function NormalTestInterface() {
   const [showSubmitModal, setShowSubmitModal]   = useState(false);
   const [loading, setLoading]                   = useState(true);
   const [submitting, setSubmitting]             = useState(false);
+  const [submitDisabled, setSubmitDisabled]     = useState(false);
   const [fullscreenEnabled, setFullscreenEnabled] = useState(true);
   const [fullscreenExitCount, setFullscreenExitCount] = useState(0);
   const [currentScreen, setCurrentScreen]       = useState(1);
@@ -229,7 +230,7 @@ export default function NormalTestInterface() {
         if (!sid) { sid = `C${Math.floor(100 + Math.random() * 900)}`; localStorage.setItem(storageKey, sid); }
         setSystemId(sid);
         const { data: ea } = await supabase.from("test_attempts")
-          .select("id, completed_at, fullscreen_exit_count")
+          .select("id, completed_at, fullscreen_exit_count, result_available_at")
           .eq("test_id", testId).eq("user_id", user.id).maybeSingle();
         if (ea) {
           if (ea.completed_at) { navigate(`/test/${testId}/analysis`); return; }
@@ -313,6 +314,7 @@ export default function NormalTestInterface() {
       setTimeLeft(startData.remaining_seconds ?? startData.duration_minutes * 60);
       if (startData.fullscreen_exit_count) setFullscreenExitCount(startData.fullscreen_exit_count);
       if (startData.is_resume && startData.existing_answers) setAnswers(startData.existing_answers);
+      setSubmitDisabled(Boolean(startData.submit_disabled));
       const existingTimeMapRaw = (startData.is_resume && startData.existing_time_per_question)
         ? startData.existing_time_per_question
         : {};
@@ -401,7 +403,7 @@ export default function NormalTestInterface() {
     return () => clearInterval(t);
   }, [loading, currentScreen]);
 
-  useEffect(() => { if (timeExpired && attemptId && !submitting) handleSubmit(); }, [timeExpired]);
+  useEffect(() => { if (timeExpired && attemptId && !submitting) handleSubmit(false, true); }, [timeExpired]);
 
   const formatTime = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
@@ -659,8 +661,21 @@ export default function NormalTestInterface() {
     }
   };
 
-  const handleSubmit = useCallback(async (fromMax = false) => {
+  const handleSubmit = useCallback(async (fromMax = false, forceSubmit = false) => {
     if (!attemptId || submitting) return;
+    if (submitDisabled && !forceSubmit) {
+      toast({ title: "Submission disabled", description: "Submission is disabled by your admin.", variant: "destructive" });
+      return;
+    }
+    const { data: latestAttempt } = await supabase
+      .from("test_attempts")
+      .select("submit_disabled")
+      .eq("id", attemptId)
+      .maybeSingle();
+    if (latestAttempt?.submit_disabled && !forceSubmit) {
+      toast({ title: "Submission disabled", description: "Submission is disabled by your admin.", variant: "destructive" });
+      return;
+    }
     setSubmitting(true);
     try {
       const nextTimeMap = buildCurrentTimeSnapshot();
@@ -668,7 +683,13 @@ export default function NormalTestInterface() {
       await enqueueAttemptUpdate({ time_per_question: buildPersistedTimePayload(nextTimeMap, visitedQuestions) });
 
       const { data, error } = await supabase.functions.invoke("submit-test", {
-        body: { attempt_id: attemptId, answers, time_taken_seconds: Math.max(1, (testDuration * 60) - timeLeft), fullscreen_exit_count: fullscreenExitCount },
+        body: {
+          attempt_id: attemptId,
+          answers,
+          time_taken_seconds: Math.max(1, (testDuration * 60) - timeLeft),
+          fullscreen_exit_count: fullscreenExitCount,
+          force_submit: forceSubmit,
+        },
       });
       if (error || data?.error) throw new Error(data?.error || error?.message || "Failed to submit test");
       await proctoring.stop(fromMax ? "max_fullscreen_exits" : "submitted");
@@ -688,7 +709,7 @@ export default function NormalTestInterface() {
 
   const handleMaxFullscreenExits = useCallback(() => {
     toast({ title: "Test Auto-Submitted", description: "You exceeded the maximum allowed fullscreen exits.", variant: "destructive" });
-    handleSubmit(true);
+    handleSubmit(true, true);
   }, [handleSubmit]);
 
   const getQuestionStatus = (qid: string) => {
@@ -1245,9 +1266,9 @@ export default function NormalTestInterface() {
 
           {/* Submit button at bottom of sidebar */}
           <div style={{ padding: "8px", borderTop: "1px solid #ccc", background: "#fff", flexShrink: 0 }}>
-            <button onClick={() => setShowSubmitModal(true)} disabled={submitting}
+            <button onClick={() => setShowSubmitModal(true)} disabled={submitting || submitDisabled}
               style={{ width: "100%", padding: "9px 0", background: C.secActive, border: "none", color: "#fff", fontSize: 14, fontWeight: "bold", cursor: "pointer", borderRadius: 2 }}>
-              {submitting ? "Submitting…" : "Submit"}
+              {submitDisabled ? "Submit Disabled" : submitting ? "Submitting…" : "Submit"}
             </button>
           </div>
         </div>
@@ -1298,9 +1319,9 @@ export default function NormalTestInterface() {
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button onClick={() => setShowSubmitModal(false)}
                   style={{ padding: "8px 20px", background: "#fff", border: "1px solid #aaa", fontSize: 13, cursor: "pointer", borderRadius: 2, color: "#333" }}>Cancel</button>
-                <button onClick={() => handleSubmit()} disabled={submitting}
+                <button onClick={() => handleSubmit()} disabled={submitting || submitDisabled}
                   style={{ padding: "8px 20px", background: "#cc0000", border: "none", color: "#fff", fontSize: 13, fontWeight: "bold", cursor: "pointer", borderRadius: 2 }}>
-                  {submitting ? "Submitting…" : "Yes, Submit"}
+                  {submitDisabled ? "Submit Disabled" : submitting ? "Submitting…" : "Yes, Submit"}
                 </button>
               </div>
             </motion.div>

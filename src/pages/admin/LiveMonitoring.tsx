@@ -18,6 +18,13 @@ import type { MonitoringEventRecord, MonitoringSessionRecord, ProctoringDeviceSt
 
 type LiveSession = MonitoringSessionRecord;
 type LiveEvent = MonitoringEventRecord;
+type ScreenshotRecord = {
+  id: string;
+  session_id: string;
+  storage_path: string;
+  captured_at: string;
+  signed_url?: string | null;
+};
 
 const readDevices = (session: LiveSession): ProctoringDeviceState => {
   const metadata = session.metadata && typeof session.metadata === 'object' ? session.metadata : {};
@@ -39,7 +46,7 @@ function deviceBadge(enabled: boolean, label: string, Icon: any) {
   return <Badge variant={enabled ? 'default' : 'secondary'} className="gap-1"><Icon className="w-3 h-3" /> {label}</Badge>;
 }
 
-function LiveViewer({ session, events }: { session: LiveSession; events: LiveEvent[] }) {
+function LiveViewer({ session, events, screenshots }: { session: LiveSession; events: LiveEvent[]; screenshots: ScreenshotRecord[] }) {
   const devices = readDevices(session);
   const fullscreenExits = events.filter((event) => event.event_type === 'fullscreen_exit').length;
   const recentQuestionEvent = events.find((event) => event.event_type === 'question_change');
@@ -86,6 +93,25 @@ function LiveViewer({ session, events }: { session: LiveSession; events: LiveEve
             </div>
           </ScrollArea>
         </div>
+        <div className="rounded-xl border p-4">
+          <h3 className="font-semibold mb-3">Recent screenshots</h3>
+          {screenshots.length ? (
+            <div className="grid grid-cols-2 gap-3">
+              {screenshots.map((shot) => (
+                <div key={shot.id} className="rounded-lg border overflow-hidden bg-secondary/40">
+                  {shot.signed_url ? (
+                    <img src={shot.signed_url} alt={`Screenshot ${shot.id}`} className="w-full h-32 object-cover" />
+                  ) : (
+                    <div className="h-32 flex items-center justify-center text-xs text-muted-foreground">Unavailable</div>
+                  )}
+                  <div className="text-[10px] text-muted-foreground p-2">{new Date(shot.captured_at).toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No screenshots captured yet.</p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -95,6 +121,8 @@ export default function LiveMonitoring() {
   const { toast } = useToast();
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [events, setEvents] = useState<LiveEvent[]>([]);
+  const [screenshots, setScreenshots] = useState<Record<string, ScreenshotRecord[]>>({});
+  const [screenshotsLoading, setScreenshotsLoading] = useState(false);
   const [selected, setSelected] = useState<LiveSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
@@ -159,7 +187,34 @@ export default function LiveMonitoring() {
   const openViewer = async (session: LiveSession) => {
     setSelected(session);
     await load();
+    await loadScreenshots(session.id);
   };
+
+  const loadScreenshots = useCallback(async (sessionId: string) => {
+    setScreenshotsLoading(true);
+    const { data, error } = await supabase
+      .from('monitoring_screenshots')
+      .select('id, session_id, storage_path, captured_at')
+      .eq('session_id', sessionId)
+      .order('captured_at', { ascending: false })
+      .limit(12);
+    if (error) {
+      console.error('Failed to load screenshots', error);
+      setScreenshotsLoading(false);
+      return;
+    }
+
+    const signed = await Promise.all(
+      (data || []).map(async (shot) => {
+        const { data: signedUrl } = await supabase.storage
+          .from('monitoring-screenshots')
+          .createSignedUrl(shot.storage_path, 3600);
+        return { ...shot, signed_url: signedUrl?.signedUrl ?? null } as ScreenshotRecord;
+      }),
+    );
+    setScreenshots((prev) => ({ ...prev, [sessionId]: signed }));
+    setScreenshotsLoading(false);
+  }, []);
 
   const eventsBySession = events.reduce<Record<string, LiveEvent[]>>((acc, event) => {
     acc[event.session_id] = acc[event.session_id] || [];
@@ -265,7 +320,14 @@ export default function LiveMonitoring() {
       <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
         <DialogContent className="max-w-6xl max-h-[92vh] overflow-auto">
           <DialogHeader><DialogTitle>Live viewer — {selected ? (readSessionText(selected, 'test_name') || selected.attempt_id) : 'Monitoring session'}</DialogTitle></DialogHeader>
-          {selected && <LiveViewer session={selected} events={eventsBySession[selected.id] || events.filter((event) => event.session_id === selected.id)} />}
+          {selected && (
+            <LiveViewer
+              session={selected}
+              events={eventsBySession[selected.id] || events.filter((event) => event.session_id === selected.id)}
+              screenshots={screenshots[selected.id] || []}
+            />
+          )}
+          {selected && screenshotsLoading && <p className="text-xs text-muted-foreground">Loading screenshots…</p>}
         </DialogContent>
       </Dialog>
     </AdminLayout>

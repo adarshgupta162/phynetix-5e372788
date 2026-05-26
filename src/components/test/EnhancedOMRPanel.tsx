@@ -40,6 +40,7 @@ interface EnhancedOMRPanelProps {
   onQuestionClick: (index: number) => void;
   onSubmit: () => void;
   onNext: () => void;
+  submitDisabled?: boolean;
 }
 
 export default function EnhancedOMRPanel({
@@ -59,7 +60,8 @@ export default function EnhancedOMRPanel({
   onToggleReview,
   onQuestionClick,
   onSubmit,
-  onNext
+  onNext,
+  submitDisabled
 }: EnhancedOMRPanelProps) {
   const formatTime = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
@@ -191,8 +193,9 @@ export default function EnhancedOMRPanel({
           variant="gradient"
           className="w-full"
           onClick={onSubmit}
+          disabled={submitDisabled}
         >
-          Submit Test
+          {submitDisabled ? "Submit Disabled" : "Submit Test"}
         </Button>
       </div>
 
