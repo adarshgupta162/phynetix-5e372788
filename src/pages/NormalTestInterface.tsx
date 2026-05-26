@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Clock, Flag, ChevronLeft, ChevronRight, AlertCircle,
-  CheckCircle2, XCircle, Loader2, WifiOff, Info
+  CheckCircle2, XCircle, Loader2, WifiOff
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,7 @@ import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useProctoring } from "@/hooks/useProctoring";
 import FullscreenGuard from "@/components/test/FullscreenGuard";
+import AccessibilityToolbar from "@/components/test/AccessibilityToolbar";
 import { LatexRenderer } from "@/components/ui/latex-renderer";
 
 /* ─── TYPES ─── */
@@ -56,154 +57,54 @@ const C = {
   palPurple:    "#7b2fbf",   // marked — round
 };
 
-/* ─── PALETTE BUTTON — GATE-style shapes ─── */
+/* ─── PALETTE BUTTON ─── */
 function PaletteBtn({ num, status, onClick }: { num: number; status: string; onClick: () => void }) {
-  // Pentagon/shield clip path for not-visited (grey) — exactly like GATE mock
-  const pentagonClip = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)";
-
-  if (status === "not-visited") {
-    return (
-      <div onClick={onClick} style={{
-        width: 36, height: 36, background: C.palGrey, color: "#555",
-        clipPath: pentagonClip, display: "flex", alignItems: "center",
-        justifyContent: "center", fontSize: 13, fontWeight: "bold",
-        cursor: "pointer", fontFamily: "Arial,sans-serif", position: "relative",
-        flexShrink: 0, userSelect: "none",
-      }}>
-        {num}
-      </div>
-    );
-  }
-
+  let bg = C.palGrey, color = "#555", borderRadius = "4px", border = "1px solid #aaa", outline = "none";
   if (status === "current") {
-    // Current: red/orange square with slight rounding
-    return (
-      <div onClick={onClick} style={{
-        width: 36, height: 36, background: "#e05a00", color: "#fff",
-        borderRadius: "4px", border: "2px solid #c04a00",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 13, fontWeight: "bold", cursor: "pointer",
-        fontFamily: "Arial,sans-serif", position: "relative",
-        flexShrink: 0, userSelect: "none", boxSizing: "border-box",
-      }}>
-        {num}
-      </div>
-    );
+    bg = C.palRed2; color = "#fff"; borderRadius = "4px"; border = "none";
+    outline = `2px solid ${C.palRed2}`; 
+  } else if (status === "not-answered") {
+    bg = C.palRed; color = "#fff"; borderRadius = "50%"; border = "none";
+  } else if (status === "answered") {
+    bg = C.palGreen; color = "#fff"; borderRadius = "50%"; border = "none";
+  } else if (status === "marked" || status === "answered-marked") {
+    bg = C.palPurple; color = "#fff"; borderRadius = "50%"; border = "none";
   }
-
-  if (status === "not-answered") {
-    // Red circle
-    return (
-      <div onClick={onClick} style={{
-        width: 36, height: 36, background: C.palRed, color: "#fff",
-        borderRadius: "50%", border: "none",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 13, fontWeight: "bold", cursor: "pointer",
-        fontFamily: "Arial,sans-serif", position: "relative",
-        flexShrink: 0, userSelect: "none",
-      }}>
-        {num}
-      </div>
-    );
-  }
-
-  if (status === "answered") {
-    // Green circle
-    return (
-      <div onClick={onClick} style={{
-        width: 36, height: 36, background: C.palGreen, color: "#fff",
-        borderRadius: "50%", border: "none",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 13, fontWeight: "bold", cursor: "pointer",
-        fontFamily: "Arial,sans-serif", position: "relative",
-        flexShrink: 0, userSelect: "none",
-      }}>
-        {num}
-      </div>
-    );
-  }
-
-  if (status === "marked") {
-    // Purple circle
-    return (
-      <div onClick={onClick} style={{
-        width: 36, height: 36, background: C.palPurple, color: "#fff",
-        borderRadius: "50%", border: "none",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 13, fontWeight: "bold", cursor: "pointer",
-        fontFamily: "Arial,sans-serif", position: "relative",
-        flexShrink: 0, userSelect: "none",
-      }}>
-        {num}
-      </div>
-    );
-  }
-
-  if (status === "answered-marked") {
-    // Purple circle with green dot (answered & marked)
-    return (
-      <div onClick={onClick} style={{
-        width: 36, height: 36, background: C.palPurple, color: "#fff",
-        borderRadius: "50%", border: "none",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 13, fontWeight: "bold", cursor: "pointer",
-        fontFamily: "Arial,sans-serif", position: "relative",
-        flexShrink: 0, userSelect: "none",
-      }}>
-        {num}
-        <span style={{ position: "absolute", bottom: -2, right: -2, width: 11, height: 11, background: C.palGreen, borderRadius: "50%", border: "2px solid #fff" }} />
-      </div>
-    );
-  }
-
   return (
     <div onClick={onClick} style={{
-      width: 36, height: 36, background: C.palGrey, color: "#555",
-      clipPath: pentagonClip, display: "flex", alignItems: "center",
-      justifyContent: "center", fontSize: 13, fontWeight: "bold",
-      cursor: "pointer", fontFamily: "Arial,sans-serif", position: "relative",
-      flexShrink: 0, userSelect: "none",
+      width: 36, height: 36, background: bg, color, borderRadius, border,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: 13, fontWeight: "bold", cursor: "pointer",
+      fontFamily: "Arial,sans-serif", position: "relative", flexShrink: 0,
+      outline, outlineOffset: "2px", boxSizing: "border-box", userSelect: "none",
     }}>
       {num}
+      {status === "answered-marked" && (
+        <span style={{ position: "absolute", bottom: -2, right: -2, width: 11, height: 11, background: C.palGreen, borderRadius: "50%", border: "2px solid #fff" }} />
+      )}
     </div>
   );
 }
 
 /* ─── LEGEND ICON ─── */
-type StatusCounts = { answered: number; notAnswered: number; notVisited: number; marked: number; answeredMarked: number };
-
-function StatusSymbol({ n, type, size = 28 }: { n: number; type: "answered"|"notans"|"notvisit"|"marked"|"ansmarked"; size?: number }) {
-  const pentagonClip = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)";
-  const fontSize = size <= 20 ? 10 : 12;
-  const markerSize = size <= 20 ? 8 : 9;
-
-  if (type === "notvisit") {
-    return (
-      <div style={{ position: "relative", width: size, height: size, background: C.palGrey, color: "#555", clipPath: pentagonClip, display: "flex", alignItems: "center", justifyContent: "center", fontSize, fontWeight: "bold", flexShrink: 0 }}>
-        {n}
-      </div>
-    );
-  }
+function LegIcon({ n, type }: { n: number; type: "answered"|"notans"|"notvisit"|"marked"|"ansmarked" }) {
   const s = {
-    answered:  { bg: C.palGreen,  color: "#fff", br: "50%", border: "none" },
-    notans:    { bg: C.palRed,    color: "#fff", br: "50%", border: "none" },
-    marked:    { bg: C.palPurple, color: "#fff", br: "50%", border: "none" },
-    ansmarked: { bg: C.palPurple, color: "#fff", br: "50%", border: "none" },
-  }[type as "answered"|"notans"|"marked"|"ansmarked"];
+    answered:  { bg: C.palGreen,  color: "#fff", br: "50%",              border: "none" },
+    notans:    { bg: C.palRed,    color: "#fff", br: "50%",              border: "none" },
+    notvisit:  { bg: C.palGrey,   color: "#555", br: "4px",              border: "1px solid #aaa" },
+    marked:    { bg: C.palPurple, color: "#fff", br: "50%",              border: "none" },
+    ansmarked: { bg: C.palPurple, color: "#fff", br: "50%",              border: "none" },
+  }[type];
   return (
-    <div style={{ position: "relative", width: size, height: size, background: s.bg, color: s.color, borderRadius: s.br, border: s.border, display: "flex", alignItems: "center", justifyContent: "center", fontSize, fontWeight: "bold", flexShrink: 0 }}>
+    <div style={{ position: "relative", width: 28, height: 28, background: s.bg, color: s.color, borderRadius: s.br, border: s.border, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: "bold", flexShrink: 0 }}>
       {n}
-      {type === "ansmarked" && <span style={{ position: "absolute", bottom: -2, right: -2, width: markerSize, height: markerSize, background: C.palGreen, borderRadius: "50%", border: "2px solid #fff" }} />}
+      {type === "ansmarked" && <span style={{ position: "absolute", bottom: -2, right: -2, width: 9, height: 9, background: C.palGreen, borderRadius: "50%", border: "2px solid #fff" }} />}
     </div>
   );
 }
 
-function LegIcon({ n, type }: { n: number; type: "answered"|"notans"|"notvisit"|"marked"|"ansmarked" }) {
-  return <StatusSymbol n={n} type={type} />;
-}
-
 /* ─── TOOLTIP POPUP ─── */
-function StatusTooltip({ counts, visible }: { counts: StatusCounts; visible: boolean }) {
+function StatusTooltip({ counts, visible }: { counts: { answered: number; notAnswered: number; notVisited: number; marked: number; answeredMarked: number }; visible: boolean }) {
   if (!visible) return null;
   return (
     <div style={{
@@ -214,14 +115,14 @@ function StatusTooltip({ counts, visible }: { counts: StatusCounts; visible: boo
     }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
         {[
-          { type: "answered",  label: "Answered",                     val: counts.answered },
-          { type: "notans",    label: "Not Answered",                 val: counts.notAnswered },
-          { type: "notvisit",  label: "Not Visited",                  val: counts.notVisited },
-          { type: "marked",    label: "Marked for Review",            val: counts.marked },
-          { type: "ansmarked", label: "Answered & Marked for Review", val: counts.answeredMarked },
+          { color: C.palGreen,  br: "50%",  label: "Answered",                        val: counts.answered },
+          { color: C.palRed,    br: "50%",  label: "Not Answered",                    val: counts.notAnswered },
+          { color: C.palGrey,   br: "4px",  label: "Not Visited",                     val: counts.notVisited },
+          { color: C.palPurple, br: "50%",  label: "Marked for Review",               val: counts.marked },
+          { color: C.palPurple, br: "50%",  label: "Answered & Marked for Review",    val: counts.answeredMarked },
         ].map((row, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <StatusSymbol n={row.val} type={row.type} size={20} />
+            <div style={{ width: 20, height: 20, background: row.color, borderRadius: row.br, border: row.color === C.palGrey ? "1px solid #aaa" : "none", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: "bold", flexShrink: 0 }}>{row.val}</div>
             <span>{row.label}</span>
           </div>
         ))}
@@ -281,17 +182,8 @@ export default function NormalTestInterface() {
   const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
   const persistSequenceRef = useRef(0);
 
-  const [showAccessibilityModal, setShowAccessibilityModal] = useState(false);
-  const [showInstructionsModal, setShowInstructionsModal]   = useState(false);
-  const [showQuestionPaperModal, setShowQuestionPaperModal] = useState(false);
-  const [darkMode, setDarkMode]                             = useState(false);
-  const [fontSize, setFontSize]                             = useState<"small"|"medium"|"large">("medium");
-  const [cursorTrail, setCursorTrail]                       = useState(false);
-  const [cursorSize, setCursorSize]                         = useState<"small"|"medium"|"large">("small");
-
   // tooltip hover state
   const [hoveredSectionTooltip, setHoveredSectionTooltip] = useState<string | null>(null);
-  const [hoveredTestTooltip, setHoveredTestTooltip] = useState(false);
   const [unlockDate, setUnlockDate]             = useState<string | null>((location.state as { unlockDate?: string | null } | null)?.unlockDate || null);
   const [showUnlockPopup, setShowUnlockPopup]   = useState(false);
 
@@ -1053,33 +945,18 @@ export default function NormalTestInterface() {
     <div data-test-content style={{ height: "100vh", display: "flex", flexDirection: "column", fontFamily: "Arial,sans-serif", fontSize: 13, overflow: "hidden", background: "#f5f5f5" }}>
 
       {/* ── ROW 1: Full-width dark top bar ── */}
-      <div style={{ background: C.topbarDark, color: "#fff", height: 36, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", flexShrink: 0, zIndex: 10 }}>
-        <span style={{ fontSize: 14, fontWeight: "bold", color: "#fff", letterSpacing: 1 }}>PHYNETIX</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-          {/* Accessibility */}
-          <button onClick={() => setShowAccessibilityModal(true)}
-            style={{ background: "transparent", border: "1px solid #4a7a9b", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 3, height: 26 }}>
-            <span style={{ width: 16, height: 16, background: "#26a65b", borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0 }}>✦</span>
-            Accessibility
-          </button>
-          {/* Screen Magnifier */}
-          <button
-            style={{ background: "transparent", border: "1px solid #4a7a9b", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 3, height: 26, marginLeft: 4 }}>
-            <span style={{ width: 16, height: 16, background: "#e8a020", borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0 }}>🔍</span>
-            Screen Magnifier
-          </button>
-          {/* Instructions */}
-          <button onClick={() => setShowInstructionsModal(true)}
-            style={{ background: "transparent", border: "1px solid #4a7a9b", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 3, height: 26, marginLeft: 4 }}>
-            <span style={{ width: 16, height: 16, background: C.secActive, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, fontWeight: "bold", flexShrink: 0 }}>i</span>
+      <div style={{ background: C.topbarDark, color: "#fff", height: 32, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", flexShrink: 0, zIndex: 10 }}>
+        <span style={{ fontSize: 13, fontWeight: "bold", color: "#fff" }}>PHYNETIX</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button style={{ background: "transparent", border: "none", color: "#aaccee", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}>
+            <span style={{ width: 15, height: 15, background: C.secActive, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 9, fontWeight: "bold", flexShrink: 0 }}>i</span>
             Instructions
           </button>
-          {/* Question Paper */}
-          <button onClick={() => setShowQuestionPaperModal(true)}
-            style={{ background: "transparent", border: "1px solid #4a7a9b", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 3, height: 26, marginLeft: 4 }}>
-            <span style={{ width: 16, height: 16, background: C.palGreen, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, flexShrink: 0 }}>≡</span>
+          <button style={{ background: "transparent", border: "none", color: "#aaccee", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}>
+            <span style={{ width: 15, height: 15, background: C.palGreen, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 9, flexShrink: 0 }}>≡</span>
             Question Paper
           </button>
+          <AccessibilityToolbar />
         </div>
       </div>
 
@@ -1091,17 +968,8 @@ export default function NormalTestInterface() {
 
           {/* ROW 2: Test name + i tooltip + Time Left — left area only */}
           <div style={{ background: C.sectionTabBg, borderBottom: "1px solid #ccc", padding: "4px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: "bold", color: "#111" }}>{testName}</span>
-              <button
-                onMouseEnter={() => setHoveredTestTooltip(true)}
-                onMouseLeave={() => setHoveredTestTooltip(false)}
-                aria-label="View test status summary"
-                style={{ width: 16, height: 16, borderRadius: "50%", border: "none", background: C.secActive, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}
-              >
-                <Info size={10} />
-              </button>
-              <StatusTooltip counts={{ answered: sc.answered, notAnswered: sc.notAnswered, notVisited: sc.notVisited, marked: sc.markedCount, answeredMarked: sc.answeredMarked }} visible={hoveredTestTooltip} />
             </div>
             <span style={{ fontSize: 13, fontWeight: "bold", color: timeLeft < 300 ? "#cc0000" : "#000" }}>
               Time Left : {formatTime(timeLeft)}
@@ -1133,7 +1001,7 @@ export default function NormalTestInterface() {
                       }}
                       style={{ display: "flex", alignItems: "center", gap: 3, padding: "4px 12px", border: "1px solid", borderColor: activeSection === sec.id ? "#1a60b0" : "#b0c8e0", borderRadius: 3, background: activeSection === sec.id ? C.secActive : C.secInactive, color: activeSection === sec.id ? "#fff" : "#1a1a1a", fontSize: 12, fontWeight: "bold", cursor: "pointer", whiteSpace: "nowrap" }}>
                       {sec.name}
-                      <span style={{ width: 16, height: 16, background: "#fff", borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: C.secActive, fontSize: 10, fontWeight: "bold", border: `1px solid ${activeSection === sec.id ? "rgba(255,255,255,0.5)" : C.secActive}`, flexShrink: 0 }}>i</span>
+                      <span style={{ width: 14, height: 14, background: activeSection === sec.id ? "rgba(255,255,255,.3)" : C.secActive, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 9, fontWeight: "bold" }}>i</span>
                     </button>
                     <StatusTooltip counts={{ answered: secCounts.answered, notAnswered: secCounts.notAnswered, notVisited: secCounts.notVisited, marked: secCounts.markedCount, answeredMarked: secCounts.answeredMarked }} visible={hoveredSectionTooltip === sec.id} />
                   </div>
@@ -1142,27 +1010,6 @@ export default function NormalTestInterface() {
             </div>
             <button style={{ width: 20, height: 20, background: "#e0e0e0", border: "1px solid #bbb", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, color: "#333", flexShrink: 0 }}>▶</button>
           </div>
-
-          {/* Question Type + Marks Info bar — exactly like GATE/JEE */}
-          {currentQuestion && (
-            <div style={{ background: "#f8f8f8", borderBottom: "1px solid #ddd", padding: "3px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-              <span style={{ fontSize: 12, color: "#333", fontWeight: "bold" }}>
-                Question Type:{" "}
-                <span style={{ fontWeight: "normal" }}>
-                  {isIntegerQuestion ? "Numerical" : isMultipleChoice ? "MCQ" : "MCQ"}
-                </span>
-              </span>
-              <span style={{ fontSize: 12, color: "#333" }}>
-                Marks for correct answer:{" "}
-                <span style={{ color: "#26a65b", fontWeight: "bold" }}>{currentQuestion.marks ?? 4}</span>
-                {" | "}
-                Negative Marks:{" "}
-                <span style={{ color: "#cc0000", fontWeight: "bold" }}>
-                  {isIntegerQuestion ? "0" : (currentQuestion.negative_marks != null ? currentQuestion.negative_marks : (currentQuestion.marks ?? 4) / 4)}
-                </span>
-              </span>
-            </div>
-          )}
 
           {/* Question area */}
           <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px", background: "#fff" }}>
@@ -1405,175 +1252,6 @@ export default function NormalTestInterface() {
           </div>
         </div>
       </div>
-
-      {/* ── ACCESSIBILITY MODAL — exactly as NTA/JEE spec ── */}
-      <AnimatePresence>
-        {showAccessibilityModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center" }}
-            onClick={() => setShowAccessibilityModal(false)}>
-            <motion.div initial={{ scale: .95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: .95, opacity: 0 }}
-              onClick={e => e.stopPropagation()}
-              style={{ background: "#fff", border: "1px solid #bbb", borderRadius: 4, width: 480, fontFamily: "Arial,sans-serif", boxShadow: "0 8px 32px rgba(0,0,0,.25)", overflow: "hidden" }}>
-              {/* Header */}
-              <div style={{ background: C.secActive, color: "#fff", padding: "10px 16px", fontSize: 15, fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span>Accessibility Adjustments</span>
-                <button onClick={() => setShowAccessibilityModal(false)} style={{ background: "transparent", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
-              </div>
-              <div style={{ padding: "20px 20px 24px" }}>
-                {/* 2x2 grid of controls */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-                  {/* Dark Mode */}
-                  <div style={{ border: "1px solid #ddd", borderRadius: 6, padding: "14px 16px" }}>
-                    <div style={{ fontSize: 12, color: "#555", marginBottom: 10, fontWeight: "bold" }}>Switch to Dark Mode</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {/* Sun icon */}
-                      <button
-                        onClick={() => setDarkMode(false)}
-                        style={{ width: 38, height: 38, borderRadius: "50%", border: `2px solid ${!darkMode ? C.secActive : "#ccc"}`, background: !darkMode ? C.secActive : "#f5f5f5", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>
-                        ☀️
-                      </button>
-                      {/* Moon icon */}
-                      <button
-                        onClick={() => setDarkMode(true)}
-                        style={{ width: 38, height: 38, borderRadius: "50%", border: `2px solid ${darkMode ? C.secActive : "#ccc"}`, background: darkMode ? C.secActive : "#f5f5f5", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>
-                        🌙
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Font Size */}
-                  <div style={{ border: "1px solid #ddd", borderRadius: 6, padding: "14px 16px" }}>
-                    <div style={{ fontSize: 12, color: "#555", marginBottom: 10, fontWeight: "bold" }}>Select Font Size</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {(["small","medium","large"] as const).map((sz, i) => (
-                        <button key={sz} onClick={() => setFontSize(sz)}
-                          style={{ width: 36 + i*4, height: 36 + i*4, borderRadius: "50%", border: `2px solid ${fontSize === sz ? C.secActive : "#ccc"}`, background: fontSize === sz ? C.secActive : "#f5f5f5", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: fontSize === sz ? "#fff" : "#333", fontWeight: "bold", fontSize: 10 + i*3 }}>
-                          A
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Cursor Trail */}
-                  <div style={{ border: "1px solid #ddd", borderRadius: 6, padding: "14px 16px" }}>
-                    <div style={{ fontSize: 12, color: "#555", marginBottom: 10, fontWeight: "bold" }}>Enable Cursor Trail</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <button onClick={() => setCursorTrail(true)}
-                        style={{ width: 42, height: 38, border: `2px solid ${cursorTrail ? C.secActive : "#ccc"}`, background: cursorTrail ? C.secActive : "#f5f5f5", borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>
-                        🖱️
-                      </button>
-                      <button onClick={() => setCursorTrail(false)}
-                        style={{ width: 42, height: 38, border: `2px solid ${!cursorTrail ? C.secActive : "#ccc"}`, background: !cursorTrail ? C.secActive : "#f5f5f5", borderRadius: 4, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Cursor Size */}
-                  <div style={{ border: "1px solid #ddd", borderRadius: 6, padding: "14px 16px" }}>
-                    <div style={{ fontSize: 12, color: "#555", marginBottom: 10, fontWeight: "bold" }}>Choose Cursor Size</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {(["small","medium","large"] as const).map((sz, i) => (
-                        <button key={sz} onClick={() => setCursorSize(sz)}
-                          style={{ width: 32 + i*6, height: 32 + i*6, borderRadius: "50%", border: `2px solid ${cursorSize === sz ? C.secActive : "#ccc"}`, background: cursorSize === sz ? C.secActive : "#f5f5f5", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 + i*4 }}>
-                          🖱
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
-                  <button onClick={() => setShowAccessibilityModal(false)}
-                    style={{ padding: "8px 24px", background: C.secActive, border: "none", color: "#fff", fontSize: 13, fontWeight: "bold", cursor: "pointer", borderRadius: 3 }}>
-                    Apply
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── INSTRUCTIONS MODAL ── */}
-      <AnimatePresence>
-        {showInstructionsModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center" }}
-            onClick={() => setShowInstructionsModal(false)}>
-            <motion.div initial={{ scale: .95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: .95, opacity: 0 }}
-              onClick={e => e.stopPropagation()}
-              style={{ background: "#fff", border: "1px solid #bbb", borderRadius: 4, width: 540, maxHeight: "80vh", fontFamily: "Arial,sans-serif", boxShadow: "0 8px 32px rgba(0,0,0,.25)", display: "flex", flexDirection: "column" }}>
-              <div style={{ background: C.secActive, color: "#fff", padding: "10px 16px", fontSize: 15, fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-                <span>Instructions</span>
-                <button onClick={() => setShowInstructionsModal(false)} style={{ background: "transparent", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>✕</button>
-              </div>
-              <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", fontSize: 13, lineHeight: 1.8, color: "#222" }}>
-                <p><strong>General Instructions:</strong></p>
-                <ol style={{ marginLeft: 18, lineHeight: 2.1 }}>
-                  <li>Total duration of examination is <strong>{testDuration || 180} minutes</strong>.</li>
-                  <li>The clock countdown timer in the top right shows remaining time. When it reaches zero, the test ends automatically.</li>
-                  <li>The Question Palette on the right shows the status of each question.</li>
-                  <li>You can shuffle between sections and questions anytime.</li>
-                  <li>To answer a question, click on the option and click <strong>Save &amp; Next</strong>.</li>
-                  <li>To mark a question for review, click <strong>Mark for Review &amp; Next</strong>.</li>
-                  <li>Answered &amp; Marked for Review questions <strong>will be evaluated</strong>.</li>
-                </ol>
-              </div>
-              <div style={{ padding: "10px 16px", borderTop: "1px solid #ddd", display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
-                <button onClick={() => setShowInstructionsModal(false)}
-                  style={{ padding: "7px 22px", background: C.secActive, border: "none", color: "#fff", fontSize: 13, fontWeight: "bold", cursor: "pointer", borderRadius: 3 }}>Close</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── QUESTION PAPER MODAL ── */}
-      <AnimatePresence>
-        {showQuestionPaperModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 99998, display: "flex", alignItems: "center", justifyContent: "center" }}
-            onClick={() => setShowQuestionPaperModal(false)}>
-            <motion.div initial={{ scale: .95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: .95, opacity: 0 }}
-              onClick={e => e.stopPropagation()}
-              style={{ background: "#fff", border: "1px solid #bbb", borderRadius: 4, width: 560, maxHeight: "85vh", fontFamily: "Arial,sans-serif", boxShadow: "0 8px 32px rgba(0,0,0,.25)", display: "flex", flexDirection: "column" }}>
-              <div style={{ background: C.secActive, color: "#fff", padding: "10px 16px", fontSize: 15, fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-                <span>Question Paper</span>
-                <button onClick={() => setShowQuestionPaperModal(false)} style={{ background: "transparent", border: "none", color: "#fff", fontSize: 18, cursor: "pointer" }}>✕</button>
-              </div>
-              <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px" }}>
-                {sections.map((sec, si) => (
-                  <div key={sec.id} style={{ marginBottom: 20 }}>
-                    <div style={{ background: C.sidebarTitle, color: "#fff", padding: "5px 10px", fontSize: 13, fontWeight: "bold", borderRadius: 3, marginBottom: 8 }}>{sec.name}</div>
-                    {sec.questions.map((q, qi) => (
-                      <div key={q.id} style={{ padding: "6px 10px", borderBottom: "1px solid #eee", fontSize: 12, color: "#333", display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}
-                        onClick={() => {
-                          const nextVisited = new Set(visitedQuestions);
-                          nextVisited.add(q.id);
-                          navigateWithoutSavingAnswer(() => {
-                            setActiveSection(sec.id);
-                            setCurrentQuestionIndex(qi);
-                            setVisitedQuestions(nextVisited);
-                          }, nextVisited);
-                          setShowQuestionPaperModal(false);
-                        }}>
-                        <span style={{ fontWeight: "bold", color: C.secActive, flexShrink: 0 }}>Q{qi + 1}.</span>
-                        <span style={{ lineHeight: 1.5 }}>{q.question_text?.substring(0, 80)}{(q.question_text?.length || 0) > 80 ? "…" : ""}</span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-              <div style={{ padding: "10px 16px", borderTop: "1px solid #ddd", display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
-                <button onClick={() => setShowQuestionPaperModal(false)}
-                  style={{ padding: "7px 22px", background: C.secActive, border: "none", color: "#fff", fontSize: 13, fontWeight: "bold", cursor: "pointer", borderRadius: 3 }}>Close</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* ── OFFLINE POPUP ── */}
       <AnimatePresence>
