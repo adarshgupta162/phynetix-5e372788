@@ -64,7 +64,7 @@ const defaultInstructions: InstructionsConfig = {
   lowTimeWarningMinutes: 10
 };
 
-const toLocalDateTimeValue = (isoValue?: string | null) => {
+const toLocalDateTimeInputValue = (isoValue?: string | null) => {
   if (!isoValue) return "";
   const date = new Date(isoValue);
   if (Number.isNaN(date.getTime())) return "";
@@ -72,7 +72,7 @@ const toLocalDateTimeValue = (isoValue?: string | null) => {
   return local.toISOString().slice(0, 16);
 };
 
-const fromLocalDateTimeValue = (localValue: string) => {
+const fromLocalDateTimeInputValue = (localValue: string) => {
   if (!localValue) return null;
   const date = new Date(localValue);
   if (Number.isNaN(date.getTime())) return null;
@@ -110,18 +110,18 @@ export function AdvancedTestSettingsPage({
 }: AdvancedSettingsPageProps) {
   const [localTest, setLocalTest] = useState(test);
   const [localInstructions, setLocalInstructions] = useState<InstructionsConfig>(normalizeInstructions(test.instructions_json));
-  const [scheduledAtLocal, setScheduledAtLocal] = useState(toLocalDateTimeValue(test.scheduled_at));
+  const [scheduledAtLocal, setScheduledAtLocal] = useState(toLocalDateTimeInputValue(test.scheduled_at));
 
   useEffect(() => {
     setLocalTest(test);
     setLocalInstructions(normalizeInstructions(test.instructions_json));
-    setScheduledAtLocal(toLocalDateTimeValue(test.scheduled_at));
+    setScheduledAtLocal(toLocalDateTimeInputValue(test.scheduled_at));
   }, [test]);
 
   const hasChanges = useMemo(() => {
     const currentSettings = {
       ...localTest,
-      scheduled_at: fromLocalDateTimeValue(scheduledAtLocal),
+      scheduled_at: fromLocalDateTimeInputValue(scheduledAtLocal),
       instructions_json: localInstructions
     };
     const originalSettings = {
@@ -140,7 +140,7 @@ export function AdvancedTestSettingsPage({
       fullscreen_enabled: localTest.fullscreen_enabled,
       show_solutions: localTest.show_solutions,
       solution_reopen_mode: localTest.solution_reopen_mode,
-      scheduled_at: fromLocalDateTimeValue(scheduledAtLocal),
+      scheduled_at: fromLocalDateTimeInputValue(scheduledAtLocal),
       instructions_json: localInstructions
     });
   };
@@ -308,9 +308,13 @@ export function AdvancedTestSettingsPage({
               min={1}
               max={25}
               value={localInstructions.maxAttempts}
-              onChange={(e) =>
-                setLocalInstructions({ ...localInstructions, maxAttempts: Math.max(1, parseInt(e.target.value) || 1) })
-              }
+              onChange={(e) => {
+                const parsed = parseInt(e.target.value, 10);
+                setLocalInstructions({
+                  ...localInstructions,
+                  maxAttempts: Math.max(1, Number.isNaN(parsed) ? 1 : parsed)
+                });
+              }}
             />
           </div>
           <div className="space-y-2">
@@ -320,12 +324,13 @@ export function AdvancedTestSettingsPage({
               min={0}
               max={30}
               value={localInstructions.gracePeriodMinutes}
-              onChange={(e) =>
+              onChange={(e) => {
+                const parsed = parseInt(e.target.value, 10);
                 setLocalInstructions({
                   ...localInstructions,
-                  gracePeriodMinutes: Math.max(0, parseInt(e.target.value) || 0)
-                })
-              }
+                  gracePeriodMinutes: Math.max(0, Number.isNaN(parsed) ? 0 : parsed)
+                });
+              }}
             />
           </div>
           <div className="space-y-2">
@@ -335,12 +340,13 @@ export function AdvancedTestSettingsPage({
               min={0}
               max={60}
               value={localInstructions.lowTimeWarningMinutes}
-              onChange={(e) =>
+              onChange={(e) => {
+                const parsed = parseInt(e.target.value, 10);
                 setLocalInstructions({
                   ...localInstructions,
-                  lowTimeWarningMinutes: Math.max(0, parseInt(e.target.value) || 0)
-                })
-              }
+                  lowTimeWarningMinutes: Math.max(0, Number.isNaN(parsed) ? 0 : parsed)
+                });
+              }}
             />
           </div>
         </CardContent>
