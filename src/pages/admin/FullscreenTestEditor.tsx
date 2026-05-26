@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import {
   ArrowLeft, Eye, EyeOff, Plus, Check, AlertCircle,
   Loader2, Save, RefreshCw, Settings, BookOpen, Import,
-  X, ChevronLeft, ChevronRight, Maximize2, Search, Link2, Upload
+  X, ChevronLeft, ChevronRight, Maximize2, Search, Link2, Upload, Trash2, RotateCcw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,6 +88,10 @@ interface Question {
   library_question_id?: string;
 }
 
+interface DeletedQuestion extends Question {
+  deleted_at: number;
+}
+
 const DIFFICULTIES = ['easy', 'medium', 'hard'];
 
 const DEFAULT_OPTIONS = [
@@ -129,6 +133,8 @@ export default function FullscreenTestEditor() {
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
   const [localQuestion, setLocalQuestion] = useState<Question | null>(null);
+  const [deletedQuestions, setDeletedQuestions] = useState<DeletedQuestion[]>([]);
+  const [showQuestionBin, setShowQuestionBin] = useState(false);
 
   // Import dialogs
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -139,6 +145,48 @@ export default function FullscreenTestEditor() {
   // Migrate to library
   const [showMigrateDialog, setShowMigrateDialog] = useState(false);
   const [migrateLoading, setMigrateLoading] = useState(false);
+
+  const getSectionQuestions = useCallback((sectionId: string, sourceQuestions: Question[]) => {
+    return sourceQuestions
+      .filter((q) => q.section_id === sectionId)
+      .sort((a, b) => a.question_number - b.question_number);
+  }, []);
+
+  const getNextQuestionNumber = useCallback((sectionId: string, sourceQuestions: Question[]) => {
+    const sectionQuestions = getSectionQuestions(sectionId, sourceQuestions);
+    if (!sectionQuestions.length) return 1;
+    return Math.max(...sectionQuestions.map((q) => q.question_number || 0)) + 1;
+  }, [getSectionQuestions]);
+
+  const renumberSectionQuestions = useCallback(async (sectionId: string, sourceQuestions: Question[]) => {
+    const sectionQuestions = getSectionQuestions(sectionId, sourceQuestions);
+    const updates = sectionQuestions
+      .map((q, index) => ({
+        id: q.id,
+        question_number: index + 1,
+        order_index: index
+      }))
+      .filter((u) => {
+        const q = sectionQuestions.find((sq) => sq.id === u.id);
+        return q && (q.question_number !== u.question_number || q.order_index !== u.order_index);
+      });
+
+    if (updates.length) {
+      await Promise.all(
+        updates.map((u) =>
+          supabase
+            .from('test_section_questions')
+            .update({ question_number: u.question_number, order_index: u.order_index })
+            .eq('id', u.id)
+        )
+      );
+    }
+
+    return sourceQuestions.map((q) => {
+      const updated = updates.find((u) => u.id === q.id);
+      return updated ? { ...q, question_number: updated.question_number, order_index: updated.order_index } : q;
+    });
+  }, [getSectionQuestions]);
 
   const fetchData = useCallback(async () => {
     if (!testId) return;
@@ -319,6 +367,8 @@ export default function FullscreenTestEditor() {
 
     const examType = test?.exam_type || 'jee_mains';
     const scheme = MARKING_SCHEMES[examType as keyof typeof MARKING_SCHEMES]?.[section.section_type as keyof typeof MARKING_SCHEMES['jee_mains']];
+    const nextQuestionNumber = getNextQuestionNumber(activeSectionId, questions);
+    const sectionQuestionCount = getSectionQuestions(activeSectionId, questions).length;
 
     const defaultAnswer = section.section_type === 'multiple_choice' ? [] : '';
 
@@ -327,11 +377,11 @@ export default function FullscreenTestEditor() {
       .insert([{
         test_id: testId,
         section_id: activeSectionId,
-        question_number: questions.length + 1,
+        question_number: nextQuestionNumber,
         correct_answer: defaultAnswer,
         marks: scheme?.marks || 4,
         negative_marks: scheme?.negative || 0,
-        order_index: questions.length,
+        order_index: sectionQuestionCount,
         options: DEFAULT_OPTIONS
       }])
       .select()
@@ -349,13 +399,14 @@ export default function FullscreenTestEditor() {
     if (!localQuestion) return;
     
     await supabase.from('test_section_questions').delete().eq('id', localQuestion.id);
+    setDeletedQuestions((prev) => [{ ...localQuestion, deleted_at: Date.now() }, ...prev.slice(0, 99)]);
 
     const remaining = questions.filter(q => q.id !== localQuestion.id);
-    remaining.forEach((q, i) => q.question_number = i + 1);
-    setQuestions(remaining);
+    const renumbered = await renumberSectionQuestions(localQuestion.section_id, remaining);
+    setQuestions(renumbered);
 
-    if (remaining.length > 0) {
-      const next = remaining.find(q => q.section_id === activeSectionId) || remaining[0];
+    if (renumbered.length > 0) {
+      const next = renumbered.find(q => q.section_id === activeSectionId) || renumbered[0];
       setActiveQuestionId(next.id);
       setLocalQuestion({ ...next, options: next.options || DEFAULT_OPTIONS });
     } else {
@@ -383,13 +434,15 @@ export default function FullscreenTestEditor() {
       }
 
       const section = sections.find(s => s.id === activeSectionId);
+      const nextQuestionNumber = getNextQuestionNumber(activeSectionId, questions);
+      const sectionQuestionCount = getSectionQuestions(activeSectionId, questions).length;
 
       const { data: newQ, error: insertError } = await supabase
         .from('test_section_questions')
         .insert([{
           test_id: testId,
           section_id: activeSectionId,
-          question_number: questions.length + 1,
+          question_number: nextQuestionNumber,
           question_text: libQuestion.question_text,
           correct_answer: libQuestion.correct_answer,
           options: libQuestion.options,
@@ -403,7 +456,7 @@ export default function FullscreenTestEditor() {
           chapter: libQuestion.chapter,
           topic: libQuestion.topic,
           library_question_id: libQuestion.id,
-          order_index: questions.length
+          order_index: sectionQuestionCount
         }])
         .select()
         .single();
@@ -488,12 +541,14 @@ export default function FullscreenTestEditor() {
     if (!activeSectionId || !testId) return;
 
     try {
+      const nextQuestionNumber = getNextQuestionNumber(activeSectionId, questions);
+      const sectionQuestionCount = getSectionQuestions(activeSectionId, questions).length;
       const { data: newQ, error: insertError } = await supabase
         .from('test_section_questions')
         .insert([{
           test_id: testId,
           section_id: activeSectionId,
-          question_number: questions.length + 1,
+          question_number: nextQuestionNumber,
           question_text: libQuestion.question_text,
           correct_answer: libQuestion.correct_answer,
           options: libQuestion.options,
@@ -507,7 +562,7 @@ export default function FullscreenTestEditor() {
           chapter: libQuestion.chapter,
           topic: libQuestion.topic,
           library_question_id: libQuestion.id,
-          order_index: questions.length
+          order_index: sectionQuestionCount
         }])
         .select()
         .single();
@@ -533,10 +588,12 @@ export default function FullscreenTestEditor() {
     if (!activeSectionId || !testId) return;
 
     try {
+      const startNumber = getNextQuestionNumber(activeSectionId, questions);
+      const sectionQuestionCount = getSectionQuestions(activeSectionId, questions).length;
       const rows = libQuestions.map((lq, i) => ({
         test_id: testId,
         section_id: activeSectionId,
-        question_number: questions.length + 1 + i,
+        question_number: startNumber + i,
         question_text: lq.question_text,
         correct_answer: lq.correct_answer,
         options: lq.options,
@@ -550,7 +607,7 @@ export default function FullscreenTestEditor() {
         chapter: lq.chapter,
         topic: lq.topic,
         library_question_id: lq.id,
-        order_index: questions.length + i
+        order_index: sectionQuestionCount + i
       }));
 
       const { data: newQs, error } = await supabase
@@ -577,6 +634,61 @@ export default function FullscreenTestEditor() {
     } catch (err: any) {
       toast({ title: "Import failed", description: err.message, variant: "destructive" });
     }
+  };
+
+  const handleRestoreDeletedQuestion = async (deletedQuestionId: string) => {
+    if (!testId) return;
+    const deletedQuestion = deletedQuestions.find((q) => q.id === deletedQuestionId);
+    if (!deletedQuestion) return;
+
+    const targetSectionId = sections.some((s) => s.id === deletedQuestion.section_id)
+      ? deletedQuestion.section_id
+      : activeSectionId;
+
+    if (!targetSectionId) {
+      toast({ title: "No section selected for restore", variant: "destructive" });
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('test_section_questions')
+      .insert([{
+        test_id: testId,
+        section_id: targetSectionId,
+        question_number: getNextQuestionNumber(targetSectionId, questions),
+        question_text: deletedQuestion.question_text,
+        correct_answer: deletedQuestion.correct_answer,
+        options: deletedQuestion.options,
+        marks: deletedQuestion.marks,
+        negative_marks: deletedQuestion.negative_marks,
+        pdf_page: deletedQuestion.pdf_page,
+        order_index: getSectionQuestions(targetSectionId, questions).length,
+        is_bonus: deletedQuestion.is_bonus,
+        image_url: deletedQuestion.image_url,
+        solution_text: deletedQuestion.solution_text,
+        solution_image_url: deletedQuestion.solution_image_url,
+        difficulty: deletedQuestion.difficulty,
+        time_seconds: deletedQuestion.time_seconds,
+        chapter: deletedQuestion.chapter,
+        topic: deletedQuestion.topic,
+        library_question_id: deletedQuestion.library_question_id
+      }])
+      .select()
+      .single();
+
+    if (error || !data) {
+      toast({ title: "Failed to restore question", variant: "destructive" });
+      return;
+    }
+
+    const targetSection = sections.find((s) => s.id === targetSectionId);
+    if (targetSection) setActiveSubjectId(targetSection.subject_id);
+    setActiveSectionId(targetSectionId);
+    setQuestions((prev) => [...prev, data]);
+    setActiveQuestionId(data.id);
+    setLocalQuestion({ ...data, options: data.options || DEFAULT_OPTIONS });
+    setDeletedQuestions((prev) => prev.filter((q) => q.id !== deletedQuestionId));
+    toast({ title: "Question restored from bin" });
   };
 
   // Paste URL from clipboard
@@ -833,6 +945,15 @@ export default function FullscreenTestEditor() {
             >
               <Plus className="w-4 h-4 mr-1" />
               Add Question
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowQuestionBin(true)}
+              className="w-full mt-2"
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              Bin ({deletedQuestions.length})
             </Button>
           </div>
         </div>
@@ -1271,6 +1392,44 @@ export default function FullscreenTestEditor() {
         multiSelect={true}
         onMultiSelect={handleMultiImportFromPicker}
       />
+
+      <Dialog open={showQuestionBin} onOpenChange={setShowQuestionBin}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Deleted Questions Bin</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[420px] overflow-y-auto">
+            {deletedQuestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No deleted questions yet.</p>
+            ) : (
+              deletedQuestions.map((deletedQuestion) => {
+                const section = sections.find((s) => s.id === deletedQuestion.section_id);
+                return (
+                  <div key={`${deletedQuestion.id}-${deletedQuestion.deleted_at}`} className="border rounded-md p-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm">
+                        Q{deletedQuestion.question_number}
+                        {section ? ` • ${section.name || section.section_type}` : ''}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {deletedQuestion.question_text?.trim() || "Untitled question"}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleRestoreDeletedQuestion(deletedQuestion.id)}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                      Restore
+                    </Button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Migrate to Library Dialog */}
       <Dialog open={showMigrateDialog} onOpenChange={setShowMigrateDialog}>
