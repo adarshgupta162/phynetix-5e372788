@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Clock, Flag, ChevronLeft, ChevronRight, AlertCircle,
-  CheckCircle2, XCircle, Loader2, WifiOff
+  CheckCircle2, XCircle, Loader2, WifiOff, Info
 } from "lucide-react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -87,7 +87,9 @@ function PaletteBtn({ num, status, onClick }: { num: number; status: string; onC
 }
 
 /* ─── LEGEND ICON ─── */
-function LegIcon({ n, type }: { n: number; type: "answered"|"notans"|"notvisit"|"marked"|"ansmarked" }) {
+type StatusCounts = { answered: number; notAnswered: number; notVisited: number; marked: number; answeredMarked: number };
+
+function StatusSymbol({ n, type, size = 28 }: { n: number; type: "answered"|"notans"|"notvisit"|"marked"|"ansmarked"; size?: number }) {
   const s = {
     answered:  { bg: C.palGreen,  color: "#fff", br: "50%",              border: "none" },
     notans:    { bg: C.palRed,    color: "#fff", br: "50%",              border: "none" },
@@ -95,16 +97,22 @@ function LegIcon({ n, type }: { n: number; type: "answered"|"notans"|"notvisit"|
     marked:    { bg: C.palPurple, color: "#fff", br: "50%",              border: "none" },
     ansmarked: { bg: C.palPurple, color: "#fff", br: "50%",              border: "none" },
   }[type];
+  const fontSize = size <= 20 ? 10 : 12;
+  const markerSize = size <= 20 ? 8 : 9;
   return (
-    <div style={{ position: "relative", width: 28, height: 28, background: s.bg, color: s.color, borderRadius: s.br, border: s.border, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: "bold", flexShrink: 0 }}>
+    <div style={{ position: "relative", width: size, height: size, background: s.bg, color: s.color, borderRadius: s.br, border: s.border, display: "flex", alignItems: "center", justifyContent: "center", fontSize, fontWeight: "bold", flexShrink: 0 }}>
       {n}
-      {type === "ansmarked" && <span style={{ position: "absolute", bottom: -2, right: -2, width: 9, height: 9, background: C.palGreen, borderRadius: "50%", border: "2px solid #fff" }} />}
+      {type === "ansmarked" && <span style={{ position: "absolute", bottom: -2, right: -2, width: markerSize, height: markerSize, background: C.palGreen, borderRadius: "50%", border: "2px solid #fff" }} />}
     </div>
   );
 }
 
+function LegIcon({ n, type }: { n: number; type: "answered"|"notans"|"notvisit"|"marked"|"ansmarked" }) {
+  return <StatusSymbol n={n} type={type} />;
+}
+
 /* ─── TOOLTIP POPUP ─── */
-function StatusTooltip({ counts, visible }: { counts: { answered: number; notAnswered: number; notVisited: number; marked: number; answeredMarked: number }; visible: boolean }) {
+function StatusTooltip({ counts, visible }: { counts: StatusCounts; visible: boolean }) {
   if (!visible) return null;
   return (
     <div style={{
@@ -115,14 +123,14 @@ function StatusTooltip({ counts, visible }: { counts: { answered: number; notAns
     }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
         {[
-          { color: C.palGreen,  br: "50%",  label: "Answered",                        val: counts.answered },
-          { color: C.palRed,    br: "50%",  label: "Not Answered",                    val: counts.notAnswered },
-          { color: C.palGrey,   br: "4px",  label: "Not Visited",                     val: counts.notVisited },
-          { color: C.palPurple, br: "50%",  label: "Marked for Review",               val: counts.marked },
-          { color: C.palPurple, br: "50%",  label: "Answered & Marked for Review",    val: counts.answeredMarked },
+          { type: "answered",  label: "Answered",                     val: counts.answered },
+          { type: "notans",    label: "Not Answered",                 val: counts.notAnswered },
+          { type: "notvisit",  label: "Not Visited",                  val: counts.notVisited },
+          { type: "marked",    label: "Marked for Review",            val: counts.marked },
+          { type: "ansmarked", label: "Answered & Marked for Review", val: counts.answeredMarked },
         ].map((row, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 20, height: 20, background: row.color, borderRadius: row.br, border: row.color === C.palGrey ? "1px solid #aaa" : "none", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: "bold", flexShrink: 0 }}>{row.val}</div>
+            <StatusSymbol n={row.val} type={row.type} size={20} />
             <span>{row.label}</span>
           </div>
         ))}
@@ -184,6 +192,7 @@ export default function NormalTestInterface() {
 
   // tooltip hover state
   const [hoveredSectionTooltip, setHoveredSectionTooltip] = useState<string | null>(null);
+  const [hoveredTestTooltip, setHoveredTestTooltip] = useState(false);
   const [unlockDate, setUnlockDate]             = useState<string | null>((location.state as { unlockDate?: string | null } | null)?.unlockDate || null);
   const [showUnlockPopup, setShowUnlockPopup]   = useState(false);
 
@@ -968,8 +977,16 @@ export default function NormalTestInterface() {
 
           {/* ROW 2: Test name + i tooltip + Time Left — left area only */}
           <div style={{ background: C.sectionTabBg, borderBottom: "1px solid #ccc", padding: "4px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
               <span style={{ fontSize: 13, fontWeight: "bold", color: "#111" }}>{testName}</span>
+              <button
+                onMouseEnter={() => setHoveredTestTooltip(true)}
+                onMouseLeave={() => setHoveredTestTooltip(false)}
+                style={{ width: 16, height: 16, borderRadius: "50%", border: "none", background: C.secActive, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}
+              >
+                <Info size={10} />
+              </button>
+              <StatusTooltip counts={{ answered: sc.answered, notAnswered: sc.notAnswered, notVisited: sc.notVisited, marked: sc.markedCount, answeredMarked: sc.answeredMarked }} visible={hoveredTestTooltip} />
             </div>
             <span style={{ fontSize: 13, fontWeight: "bold", color: timeLeft < 300 ? "#cc0000" : "#000" }}>
               Time Left : {formatTime(timeLeft)}
