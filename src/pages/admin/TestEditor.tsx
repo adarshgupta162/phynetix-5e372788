@@ -1,11 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
-  ArrowLeft, Eye, EyeOff, Plus, Check, AlertCircle, 
+  ArrowLeft, Eye, EyeOff, Plus, Check, AlertCircle, Trash2, RotateCcw,
   Loader2, Save, RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import AdminLayout from "@/components/layout/AdminLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -56,6 +62,10 @@ interface Question {
   is_bonus?: boolean;
 }
 
+interface DeletedQuestion extends Question {
+  deleted_at: number;
+}
+
 const MARKING_SCHEMES = {
   jee_mains: {
     single_choice: { marks: 4, negative: 1 },
@@ -87,9 +97,53 @@ export default function TestEditor() {
   const [activeSubjectId, setActiveSubjectId] = useState<string | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
+  const [deletedQuestions, setDeletedQuestions] = useState<DeletedQuestion[]>([]);
+  const [showQuestionBin, setShowQuestionBin] = useState(false);
 
   // Auto-save timer
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const getSectionQuestions = useCallback((sectionId: string, sourceQuestions: Question[] = questions) => {
+    return sourceQuestions
+      .filter((q) => q.section_id === sectionId)
+      .sort((a, b) => a.question_number - b.question_number);
+  }, [questions]);
+
+  const getNextQuestionNumber = useCallback((sectionId: string, sourceQuestions: Question[] = questions) => {
+    const sectionQuestions = getSectionQuestions(sectionId, sourceQuestions);
+    if (!sectionQuestions.length) return 1;
+    return Math.max(...sectionQuestions.map((q) => q.question_number || 0)) + 1;
+  }, [getSectionQuestions, questions]);
+
+  const renumberSectionQuestions = useCallback(async (sectionId: string, sourceQuestions: Question[]) => {
+    const sectionQuestions = getSectionQuestions(sectionId, sourceQuestions);
+    const updates = sectionQuestions
+      .map((q, index) => ({
+        id: q.id,
+        question_number: index + 1,
+        order_index: index
+      }))
+      .filter((u) => {
+        const q = sectionQuestions.find((sq) => sq.id === u.id);
+        return q && (q.question_number !== u.question_number || q.order_index !== u.order_index);
+      });
+
+    if (updates.length) {
+      await Promise.all(
+        updates.map((u) =>
+          supabase
+            .from('test_section_questions')
+            .update({ question_number: u.question_number, order_index: u.order_index })
+            .eq('id', u.id)
+        )
+      );
+    }
+
+    return sourceQuestions.map((q) => {
+      const updated = updates.find((u) => u.id === q.id);
+      return updated ? { ...q, question_number: updated.question_number, order_index: updated.order_index } : q;
+    });
+  }, [getSectionQuestions]);
 
   const fetchData = useCallback(async () => {
     if (!testId) return;
@@ -259,12 +313,8 @@ export default function TestEditor() {
     const examType = test?.exam_type || 'jee_mains';
     const scheme = MARKING_SCHEMES[examType as keyof typeof MARKING_SCHEMES]?.[section.section_type as keyof typeof MARKING_SCHEMES['jee_mains']];
     
-    // Renumber questions
-    let insertIndex = questions.length;
-    if (afterQuestionId) {
-      const afterQ = questions.find(q => q.id === afterQuestionId);
-      if (afterQ) insertIndex = afterQ.question_number;
-    }
+    const nextQuestionNumber = getNextQuestionNumber(activeSectionId);
+    const sectionQuestionCount = getSectionQuestions(activeSectionId).length;
 
     const defaultAnswer = section.section_type === 'multiple_choice' ? [] : '';
 
@@ -273,11 +323,11 @@ export default function TestEditor() {
       .insert([{
         test_id: testId,
         section_id: activeSectionId,
-        question_number: questions.length + 1,
+        question_number: nextQuestionNumber,
         correct_answer: defaultAnswer,
         marks: scheme?.marks || 4,
         negative_marks: scheme?.negative || 0,
-        order_index: questions.length
+        order_index: sectionQuestionCount
       }])
       .select()
       .single();
@@ -290,15 +340,22 @@ export default function TestEditor() {
   };
 
   const handleDeleteQuestion = async (questionId: string) => {
+    const questionToDelete = questions.find(q => q.id === questionId);
+    if (!questionToDelete) return;
+
     await supabase.from('test_section_questions').delete().eq('id', questionId);
     
     const remaining = questions.filter(q => q.id !== questionId);
-    // Renumber
-    remaining.forEach((q, i) => q.question_number = i + 1);
-    setQuestions(remaining);
+    const renumbered = await renumberSectionQuestions(questionToDelete.section_id, remaining);
+    setQuestions(renumbered);
+    setDeletedQuestions((prev) => [
+      { ...questionToDelete, deleted_at: Date.now() },
+      ...prev
+    ]);
     
     if (activeQuestionId === questionId) {
-      setActiveQuestionId(remaining[0]?.id || null);
+      const nextInSection = renumbered.find((q) => q.section_id === questionToDelete.section_id);
+      setActiveQuestionId(nextInSection?.id || null);
     }
     toast({ title: "Question deleted" });
   };
@@ -312,13 +369,13 @@ export default function TestEditor() {
       .insert([{
         test_id: testId,
         section_id: original.section_id,
-        question_number: questions.length + 1,
+        question_number: getNextQuestionNumber(original.section_id),
         question_text: original.question_text,
         correct_answer: original.correct_answer,
         options: original.options,
         marks: original.marks,
         negative_marks: original.negative_marks,
-        order_index: questions.length
+        order_index: getSectionQuestions(original.section_id).length
       }])
       .select()
       .single();
@@ -328,6 +385,52 @@ export default function TestEditor() {
       setActiveQuestionId(data.id);
       toast({ title: "Question duplicated" });
     }
+  };
+
+  const handleRestoreDeletedQuestion = async (deletedQuestionId: string) => {
+    if (!testId) return;
+    const deletedQuestion = deletedQuestions.find((q) => q.id === deletedQuestionId);
+    if (!deletedQuestion) return;
+
+    const targetSectionId = sections.some((s) => s.id === deletedQuestion.section_id)
+      ? deletedQuestion.section_id
+      : activeSectionId;
+
+    if (!targetSectionId) {
+      toast({ title: "No section selected for restore", variant: "destructive" });
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('test_section_questions')
+      .insert([{
+        test_id: testId,
+        section_id: targetSectionId,
+        question_number: getNextQuestionNumber(targetSectionId),
+        question_text: deletedQuestion.question_text,
+        correct_answer: deletedQuestion.correct_answer,
+        options: deletedQuestion.options,
+        marks: deletedQuestion.marks,
+        negative_marks: deletedQuestion.negative_marks,
+        pdf_page: deletedQuestion.pdf_page,
+        order_index: getSectionQuestions(targetSectionId).length,
+        is_bonus: deletedQuestion.is_bonus
+      }])
+      .select()
+      .single();
+
+    if (error || !data) {
+      toast({ title: "Failed to restore question", variant: "destructive" });
+      return;
+    }
+
+    const targetSection = sections.find((s) => s.id === targetSectionId);
+    if (targetSection) setActiveSubjectId(targetSection.subject_id);
+    setActiveSectionId(targetSectionId);
+    setQuestions((prev) => [...prev, data]);
+    setActiveQuestionId(data.id);
+    setDeletedQuestions((prev) => prev.filter((q) => q.id !== deletedQuestionId));
+    toast({ title: "Question restored from bin" });
   };
 
   // Test handlers
@@ -604,6 +707,15 @@ export default function TestEditor() {
                 <Plus className="w-4 h-4 mr-1" />
                 Add Question
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowQuestionBin(true)}
+                className="w-full mt-2"
+              >
+                <Trash2 className="w-4 h-4 mr-1" />
+                Bin ({deletedQuestions.length})
+              </Button>
             </div>
           </div>
 
@@ -621,6 +733,44 @@ export default function TestEditor() {
           />
         </div>
       </div>
+
+      <Dialog open={showQuestionBin} onOpenChange={setShowQuestionBin}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Deleted Questions Bin</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[420px] overflow-y-auto">
+            {deletedQuestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No deleted questions yet.</p>
+            ) : (
+              deletedQuestions.map((deletedQuestion) => {
+                const section = sections.find((s) => s.id === deletedQuestion.section_id);
+                return (
+                  <div key={`${deletedQuestion.id}-${deletedQuestion.deleted_at}`} className="border rounded-md p-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm">
+                        Q{deletedQuestion.question_number}
+                        {section ? ` • ${section.name || section.section_type}` : ''}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {deletedQuestion.question_text?.trim() || "Untitled question"}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleRestoreDeletedQuestion(deletedQuestion.id)}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                      Restore
+                    </Button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </AdminLayout>
   );
 }
