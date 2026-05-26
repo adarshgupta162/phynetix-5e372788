@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -694,11 +694,26 @@ export default function FullscreenTestEditor() {
     .sort((a, b) => a.question_number - b.question_number);
 
   const activeSection = sections.find(s => s.id === activeSectionId);
-  const activeSubject = subjects.find(s => s.id === activeSection?.subject_id);
-  const availableChapters = activeSubject ? getChaptersForSubject(activeSubject.name) : [];
-  const availableTopics = (activeSubject && localQuestion?.chapter)
-    ? getTopicsForChapter(activeSubject.name, localQuestion.chapter)
-    : [];
+  const activeSubject = useMemo(
+    () => subjects.find(s => s.id === activeSection?.subject_id),
+    [subjects, activeSection?.subject_id]
+  );
+  const availableChapters = useMemo(
+    () => (activeSubject ? getChaptersForSubject(activeSubject.name) : []),
+    [activeSubject]
+  );
+  const availableTopics = useMemo(
+    () => (activeSubject && localQuestion?.chapter ? getTopicsForChapter(activeSubject.name, localQuestion.chapter) : []),
+    [activeSubject, localQuestion?.chapter]
+  );
+
+  const handleChapterChange = (value: string) => {
+    setLocalQuestion(prev => (prev ? { ...prev, chapter: value, topic: '' } : prev));
+  };
+
+  const handleTopicChange = (value: string) => {
+    setLocalQuestion(prev => (prev ? { ...prev, topic: value } : prev));
+  };
 
   if (isLoading) {
     return (
@@ -852,7 +867,7 @@ export default function FullscreenTestEditor() {
                       <Label className="text-xs">Chapter</Label>
                       <Select
                         value={localQuestion.chapter || ''}
-                        onValueChange={(value) => setLocalQuestion({ ...localQuestion, chapter: value, topic: '' })}
+                        onValueChange={handleChapterChange}
                       >
                         <SelectTrigger className="h-8 text-sm">
                           <SelectValue placeholder="Select chapter" />
@@ -868,7 +883,7 @@ export default function FullscreenTestEditor() {
                       <Label className="text-xs">Topic</Label>
                       <Select
                         value={localQuestion.topic || ''}
-                        onValueChange={(value) => setLocalQuestion({ ...localQuestion, topic: value })}
+                        onValueChange={handleTopicChange}
                         disabled={!localQuestion.chapter}
                       >
                         <SelectTrigger className="h-8 text-sm">
