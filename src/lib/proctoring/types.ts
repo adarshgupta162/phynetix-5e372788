@@ -9,6 +9,8 @@ export type ProctoringSettings = {
   retention_days: number;
   instructions?: string | null;
   allow_specific_users_only?: boolean;
+  screenshot_enabled?: boolean;
+  screenshot_interval_seconds?: number;
 };
 
 export type ProctoringDeviceState = {

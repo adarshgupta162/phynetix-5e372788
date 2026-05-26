@@ -52,6 +52,7 @@ import PDFTestList from "./pages/admin/PDFTestList";
 import PDFTestCreate from "./pages/admin/PDFTestCreate";
 import PDFTestEditor from "./pages/admin/PDFTestEditor";
 import NormalTestAnalytics from "./pages/admin/NormalTestAnalytics";
+import TestManagement from "./pages/admin/TestManagement";
 import StaffCommunity from "./pages/admin/StaffCommunity";
 import AuditLogs from "./pages/admin/AuditLogs";
 import StaffRequests from "./pages/admin/StaffRequests";
@@ -138,6 +139,7 @@ const App = () => (
                 <Route path="/admin/test-creator" element={<AdminRoute><TestCreator /></AdminRoute>} />
                 <Route path="/admin/test-editor/:testId" element={<AdminRoute><TestEditor /></AdminRoute>} />
                 <Route path="/admin/test-analytics/:testId" element={<AdminRoute><NormalTestAnalytics /></AdminRoute>} />
+                <Route path="/admin/test-management/:testId" element={<AdminRoute><TestManagement /></AdminRoute>} />
                 <Route path="/admin/pdf-tests" element={<AdminRoute><PDFTestList /></AdminRoute>} />
                 <Route path="/admin/pdf-tests/create" element={<AdminRoute><PDFTestCreate /></AdminRoute>} />
                 <Route path="/admin/pdf-tests/:testId/edit" element={<AdminRoute><PDFTestEditor /></AdminRoute>} />

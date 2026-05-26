@@ -51,6 +51,10 @@ interface ExistingAttempt {
   answers: Record<string, any> | null;
   roll_number: string | null;
   fullscreen_exit_count: number | null;
+  extra_time_minutes?: number | null;
+  submit_disabled?: boolean | null;
+  result_release_delay_minutes?: number | null;
+  result_available_at?: string | null;
 }
 
 export default function PDFTestInterface() {
@@ -70,6 +74,7 @@ export default function PDFTestInterface() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfLoaded, setPdfLoaded] = useState(false);
   const [existingAttempt, setExistingAttempt] = useState<ExistingAttempt | null>(null);
+  const [submitDisabled, setSubmitDisabled] = useState(false);
 
   // Test state
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
@@ -166,7 +171,7 @@ export default function PDFTestInterface() {
         // Check for existing incomplete attempt
         const { data: existingAttemptData } = await supabase
           .from('test_attempts')
-          .select('id, started_at, answers, roll_number, fullscreen_exit_count, completed_at')
+          .select('id, started_at, answers, roll_number, fullscreen_exit_count, completed_at, extra_time_minutes, submit_disabled, result_release_delay_minutes, result_available_at')
           .eq('test_id', testId)
           .eq('user_id', user.id)
           .maybeSingle();
@@ -180,14 +185,16 @@ export default function PDFTestInterface() {
 
           const startTime = new Date(existingAttemptData.started_at).getTime();
           const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
-          const remainingTime = (test.duration_minutes * 60) - elapsedSeconds;
+          const extraMinutes = existingAttemptData.extra_time_minutes ?? 0;
+          const totalSeconds = (test.duration_minutes + extraMinutes) * 60;
+          const remainingTime = totalSeconds - elapsedSeconds;
 
           if (remainingTime <= 0) {
             toast({ title: 'Time expired', description: 'Submitting your test...' });
             setAttemptId(existingAttemptData.id);
             const savedAnswers = (existingAttemptData.answers as Record<string, any>) || {};
             setAnswers(savedAnswers);
-            await autoSubmitExpiredTest(existingAttemptData.id, savedAnswers, test.duration_minutes * 60);
+            await autoSubmitExpiredTest(existingAttemptData.id, savedAnswers, totalSeconds);
             return;
           }
 
@@ -197,7 +204,12 @@ export default function PDFTestInterface() {
             answers: (existingAttemptData.answers as Record<string, any>) || null,
             roll_number: existingAttemptData.roll_number,
             fullscreen_exit_count: existingAttemptData.fullscreen_exit_count,
+            extra_time_minutes: existingAttemptData.extra_time_minutes,
+            submit_disabled: existingAttemptData.submit_disabled,
+            result_release_delay_minutes: existingAttemptData.result_release_delay_minutes,
+            result_available_at: existingAttemptData.result_available_at,
           });
+          setSubmitDisabled(Boolean(existingAttemptData.submit_disabled));
           setTimeLeft(remainingTime);
           setPhase('resume');
         } else {
@@ -319,7 +331,8 @@ export default function PDFTestInterface() {
         body: {
           attempt_id: attemptId,
           answers: savedAnswers,
-          time_taken_seconds: totalSeconds
+          time_taken_seconds: totalSeconds,
+          force_submit: true,
         }
       });
 
@@ -378,6 +391,7 @@ export default function PDFTestInterface() {
     setAttemptId(existingAttempt.id);
     setAnswers(existingAttempt.answers || {});
     setRollNumber(existingAttempt.roll_number || generateRollNumber());
+    setSubmitDisabled(Boolean(existingAttempt.submit_disabled));
     setFullscreenExitCount(existingAttempt.fullscreen_exit_count || 0);
     setPhase('test');
   };
@@ -394,6 +408,11 @@ export default function PDFTestInterface() {
       if (error) throw error;
 
       setAttemptId(data.attempt_id);
+      setSubmitDisabled(Boolean(data.submit_disabled));
+      if (testData) {
+        const extraMinutes = Number(data.extra_time_minutes) || 0;
+        setTimeLeft((testData.duration_minutes + extraMinutes) * 60);
+      }
       await proctoring.start(data.attempt_id, { interface: 'pdf', test_name: testData?.name });
 
       await supabase
@@ -436,7 +455,7 @@ export default function PDFTestInterface() {
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          handleSubmit();
+          handleSubmit(true);
           return 0;
         }
         return prev - 1;
@@ -462,8 +481,12 @@ export default function PDFTestInterface() {
     });
   }, []);
 
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(async (forceSubmit = false) => {
     if (!attemptId || phase === 'submitting') return;
+    if (submitDisabled && !forceSubmit) {
+      toast({ title: 'Submission disabled', description: 'Submission is disabled by your admin.', variant: 'destructive' });
+      return;
+    }
 
     setPhase('submitting');
 
@@ -473,13 +496,20 @@ export default function PDFTestInterface() {
       // Check if answer key is uploaded
       if (!testData?.answer_key_uploaded) {
         // Mark as awaiting result
+        const delayMinutes = existingAttempt?.result_release_delay_minutes ?? testData?.result_release_delay_minutes ?? 0;
+        const startedAt = existingAttempt?.started_at ? new Date(existingAttempt.started_at).getTime() : Date.now();
+        const resultAvailableAt = delayMinutes > 0
+          ? new Date(startedAt + delayMinutes * 60 * 1000).toISOString()
+          : null;
         await supabase
           .from('test_attempts')
           .update({ 
             answers,
             time_taken_seconds: timeTaken,
             completed_at: new Date().toISOString(),
-            awaiting_result: true
+            awaiting_result: true,
+            last_submitted_at: new Date().toISOString(),
+            result_available_at: resultAvailableAt,
           })
           .eq('id', attemptId);
 
@@ -497,7 +527,8 @@ export default function PDFTestInterface() {
         body: {
           attempt_id: attemptId,
           answers,
-          time_taken_seconds: timeTaken
+          time_taken_seconds: timeTaken,
+          force_submit: forceSubmit,
         }
       });
 
@@ -515,7 +546,7 @@ export default function PDFTestInterface() {
       toast({ title: 'Error submitting test', description: err.message, variant: 'destructive' });
       setPhase('test');
     }
-  }, [attemptId, answers, timeLeft, testData, testId, navigate, toast, phase]);
+  }, [attemptId, answers, timeLeft, testData, testId, navigate, toast, phase, submitDisabled, existingAttempt]);
 
   const handleMaxExitsReached = useCallback(() => {
     toast({
@@ -523,7 +554,7 @@ export default function PDFTestInterface() {
       description: 'Test is being auto-submitted.',
       variant: 'destructive'
     });
-    handleSubmit();
+    handleSubmit(true);
   }, [handleSubmit, toast]);
 
   const handleExitCountChange = useCallback(async (count: number) => {
@@ -792,6 +823,7 @@ export default function PDFTestInterface() {
             onQuestionClick={setCurrentQuestion}
             onSubmit={handleSubmit}
             onNext={handleNext}
+            submitDisabled={submitDisabled}
           />
         </div>
       </div>

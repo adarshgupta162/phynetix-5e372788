@@ -69,6 +69,8 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
         retention_days: data.retention_days ?? 30,
         instructions: data.instructions ?? null,
         allow_specific_users_only: data.allow_specific_users_only ?? false,
+        screenshot_enabled: data.screenshot_enabled ?? false,
+        screenshot_interval_seconds: data.screenshot_interval_seconds ?? 120,
       });
     }
 
@@ -121,6 +123,8 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
       recording_enabled: settings.recording_enabled,
       retention_days: settings.retention_days,
       instructions: settings.instructions,
+      screenshot_enabled: settings.screenshot_enabled ?? false,
+      screenshot_interval_seconds: settings.screenshot_interval_seconds ?? 120,
       updated_by: userData.user?.id,
       created_by: userData.user?.id,
     }, { onConflict: 'test_id' });
@@ -208,9 +212,21 @@ export function ProctoringSettingsCard({ testId, compact = false }: Props) {
         <div className="flex items-center justify-between"><Label className="flex items-center gap-2"><Video className="w-4 h-4" /> Require camera</Label><Switch checked={settings.require_camera} onCheckedChange={(v) => field('require_camera', v)} /></div>
         <div className="flex items-center justify-between"><Label className="flex items-center gap-2"><Mic className="w-4 h-4" /> Require microphone</Label><Switch checked={settings.require_microphone} onCheckedChange={(v) => field('require_microphone', v)} /></div>
         <div className="flex items-center justify-between"><Label className="flex items-center gap-2"><MonitorUp className="w-4 h-4" /> Require screen share</Label><Switch checked={settings.require_screen} onCheckedChange={(v) => field('require_screen', v)} /></div>
+        <div className="flex items-center justify-between"><Label className="flex items-center gap-2"><MonitorUp className="w-4 h-4" /> Capture screenshots</Label><Switch checked={settings.screenshot_enabled ?? false} onCheckedChange={(v) => field('screenshot_enabled', v)} /></div>
         <div className="flex items-center justify-between"><Label>Allow fallback if a device fails</Label><Switch checked={settings.allow_optional_device_fallback} onCheckedChange={(v) => field('allow_optional_device_fallback', v)} /></div>
         <div className="flex items-center justify-between"><Label>Only selected students</Label><Switch checked={settings.allow_specific_users_only} onCheckedChange={(v) => field('allow_specific_users_only', v)} /></div>
         <div className="flex items-center justify-between"><Label>Recording enabled</Label><Switch checked={settings.recording_enabled} onCheckedChange={(v) => field('recording_enabled', v)} /></div>
+        <div className="space-y-2">
+          <Label>Screenshot interval (seconds)</Label>
+          <Input
+            type="number"
+            min={10}
+            max={3600}
+            value={settings.screenshot_interval_seconds ?? 120}
+            onChange={(event) => field('screenshot_interval_seconds', Number(event.target.value) || 120)}
+            disabled={!settings.screenshot_enabled}
+          />
+        </div>
         <div className="space-y-2">
           <Label>Retention days</Label>
           <Input type="number" min={1} max={3650} value={settings.retention_days} onChange={(event) => field('retention_days', Number(event.target.value) || 30)} />

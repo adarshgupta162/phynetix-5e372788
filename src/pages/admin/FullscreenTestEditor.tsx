@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft, Eye, EyeOff, Plus, Check, AlertCircle,
-  Loader2, Save, RefreshCw, Settings, BookOpen, Import,
+  Loader2, Save, RefreshCw, Settings, Settings2, BookOpen, Import,
   X, ChevronLeft, ChevronRight, Maximize2, Search, Link2, Upload, Trash2, RotateCcw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { QuestionPalette } from "@/components/admin/NormalTestEditor/QuestionPalette";
 import { SectionTabs } from "@/components/admin/NormalTestEditor/SectionTabs";
 import { TestSettingsPanel } from "@/components/admin/NormalTestEditor/TestSettingsPanel";
+import { AdvancedTestSettingsPage } from "@/components/admin/NormalTestEditor/AdvancedTestSettingsPage";
 import { LatexRenderer } from "@/components/ui/latex-renderer";
 import { QuestionImageUpload } from "@/components/admin/QuestionImageUpload";
 import { ImageUrlInput } from "@/components/admin/ImageUrlInput";
@@ -48,6 +49,9 @@ interface Test {
   fullscreen_enabled: boolean;
   show_solutions: boolean;
   instructions_json: any;
+  scheduled_at?: string | null;
+  solution_reopen_mode?: boolean | null;
+  result_release_delay_minutes?: number | null;
 }
 
 interface Subject {
@@ -135,6 +139,7 @@ export default function FullscreenTestEditor() {
   const [localQuestion, setLocalQuestion] = useState<Question | null>(null);
   const [deletedQuestions, setDeletedQuestions] = useState<DeletedQuestion[]>([]);
   const [showQuestionBin, setShowQuestionBin] = useState(false);
+  const [showSettingsPage, setShowSettingsPage] = useState(false);
 
   // Import dialogs
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -204,7 +209,15 @@ export default function FullscreenTestEditor() {
       return;
     }
 
-    setTest(testRes.data as Test);
+    const normalizedTest = {
+      ...testRes.data,
+      fullscreen_enabled: testRes.data.fullscreen_enabled ?? true,
+      show_solutions: testRes.data.show_solutions ?? false,
+      solution_reopen_mode: testRes.data.solution_reopen_mode ?? false,
+      scheduled_at: testRes.data.scheduled_at || null,
+      result_release_delay_minutes: testRes.data.result_release_delay_minutes ?? 0,
+    } as Test;
+    setTest(normalizedTest);
     setSubjects(subjectsRes.data || []);
 
     const subjectIds = (subjectsRes.data || []).map(s => s.id);
@@ -876,6 +889,14 @@ export default function FullscreenTestEditor() {
             <Import className="w-4 h-4 mr-1" />
             Import by ID
           </Button>
+          <Button
+            variant={showSettingsPage ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowSettingsPage((prev) => !prev)}
+          >
+            <Settings2 className="w-4 h-4 mr-1" />
+            {showSettingsPage ? "Back to editor" : "Advanced settings"}
+          </Button>
           {test && (
             <TestSettingsPanel
               test={test}
@@ -897,34 +918,47 @@ export default function FullscreenTestEditor() {
         </div>
       </div>
 
-      {/* Section Tabs */}
-      <SectionTabs
-        subjects={subjects}
-        sections={sections}
-        activeSubjectId={activeSubjectId}
-        activeSectionId={activeSectionId}
-        onSubjectSelect={(id) => {
-          setActiveSubjectId(id);
-          const firstSection = sections.find(s => s.subject_id === id);
-          setActiveSectionId(firstSection?.id || null);
-          const firstQ = questions.find(q => q.section_id === firstSection?.id);
-          setActiveQuestionId(firstQ?.id || null);
-        }}
-        onSectionSelect={(id) => {
-          setActiveSectionId(id);
-          const firstQ = questions.find(q => q.section_id === id);
-          setActiveQuestionId(firstQ?.id || null);
-        }}
-        onAddSubject={handleAddSubject}
-        onAddSection={handleAddSection}
-        onRenameSubject={handleRenameSubject}
-        onRenameSection={handleRenameSection}
-        onDeleteSubject={handleDeleteSubject}
-        onDeleteSection={handleDeleteSection}
-      />
+      {showSettingsPage && test ? (
+        <AdvancedTestSettingsPage
+          test={test}
+          totalQuestions={questions.length}
+          isSaving={isSaving}
+          onBack={() => setShowSettingsPage(false)}
+          onUpdate={handleUpdateTest}
+          onTogglePublish={handleTogglePublish}
+          onDuplicate={handleDuplicateTest}
+          onDelete={handleDeleteTest}
+        />
+      ) : (
+        <>
+          {/* Section Tabs */}
+          <SectionTabs
+            subjects={subjects}
+            sections={sections}
+            activeSubjectId={activeSubjectId}
+            activeSectionId={activeSectionId}
+            onSubjectSelect={(id) => {
+              setActiveSubjectId(id);
+              const firstSection = sections.find(s => s.subject_id === id);
+              setActiveSectionId(firstSection?.id || null);
+              const firstQ = questions.find(q => q.section_id === firstSection?.id);
+              setActiveQuestionId(firstQ?.id || null);
+            }}
+            onSectionSelect={(id) => {
+              setActiveSectionId(id);
+              const firstQ = questions.find(q => q.section_id === id);
+              setActiveQuestionId(firstQ?.id || null);
+            }}
+            onAddSubject={handleAddSubject}
+            onAddSection={handleAddSection}
+            onRenameSubject={handleRenameSubject}
+            onRenameSection={handleRenameSection}
+            onDeleteSubject={handleDeleteSubject}
+            onDeleteSection={handleDeleteSection}
+          />
 
-      {/* Main Content - Full Width */}
-      <div className="flex-1 flex overflow-hidden">
+          {/* Main Content - Full Width */}
+          <div className="flex-1 flex overflow-hidden">
         {/* Question Palette - Compact */}
         <div className="w-52 border-r border-border bg-card/30 flex flex-col">
           <ScrollArea className="flex-1 p-2">
@@ -1341,6 +1375,8 @@ export default function FullscreenTestEditor() {
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* Import Dialog */}
       <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>

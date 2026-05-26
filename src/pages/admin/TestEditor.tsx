@@ -31,6 +31,7 @@ interface Test {
   show_solutions: boolean;
   scheduled_at?: string | null;
   solution_reopen_mode?: boolean | null;
+  result_release_delay_minutes?: number | null;
   instructions_json: any;
 }
 
@@ -169,7 +170,8 @@ export default function TestEditor() {
       fullscreen_enabled: testRes.data.fullscreen_enabled ?? true,
       show_solutions: testRes.data.show_solutions ?? false,
       solution_reopen_mode: testRes.data.solution_reopen_mode ?? false,
-      scheduled_at: testRes.data.scheduled_at || null
+      scheduled_at: testRes.data.scheduled_at || null,
+      result_release_delay_minutes: testRes.data.result_release_delay_minutes ?? 0
     } as Test;
     setTest(normalizedTest);
     setSubjects(subjectsRes.data || []);
