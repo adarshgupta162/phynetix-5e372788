@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
-  ArrowLeft, Eye, EyeOff, Plus, Check, AlertCircle, Trash2, RotateCcw,
+  ArrowLeft, Eye, EyeOff, Plus, Check, AlertCircle, Trash2, RotateCcw, Settings2,
   Loader2, Save, RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { QuestionPalette } from "@/components/admin/NormalTestEditor/QuestionPalette";
 import { QuestionEditorPanel } from "@/components/admin/NormalTestEditor/QuestionEditorPanel";
 import { SectionTabs } from "@/components/admin/NormalTestEditor/SectionTabs";
-import { TestSettingsPanel } from "@/components/admin/NormalTestEditor/TestSettingsPanel";
+import { AdvancedTestSettingsPage } from "@/components/admin/NormalTestEditor/AdvancedTestSettingsPage";
 
 interface Test {
   id: string;
@@ -29,6 +29,8 @@ interface Test {
   is_published: boolean;
   fullscreen_enabled: boolean;
   show_solutions: boolean;
+  scheduled_at?: string | null;
+  solution_reopen_mode?: boolean | null;
   instructions_json: any;
 }
 
@@ -99,6 +101,7 @@ export default function TestEditor() {
   const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
   const [deletedQuestions, setDeletedQuestions] = useState<DeletedQuestion[]>([]);
   const [showQuestionBin, setShowQuestionBin] = useState(false);
+  const [showSettingsPage, setShowSettingsPage] = useState(false);
 
   // Auto-save timer
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -161,7 +164,14 @@ export default function TestEditor() {
       return;
     }
 
-    setTest(testRes.data as Test);
+    const normalizedTest = {
+      ...testRes.data,
+      fullscreen_enabled: testRes.data.fullscreen_enabled ?? true,
+      show_solutions: testRes.data.show_solutions ?? false,
+      solution_reopen_mode: testRes.data.solution_reopen_mode ?? false,
+      scheduled_at: testRes.data.scheduled_at || null
+    } as Test;
+    setTest(normalizedTest);
     setSubjects(subjectsRes.data || []);
     
     const subjectIds = (subjectsRes.data || []).map(s => s.id);
@@ -538,7 +548,10 @@ export default function TestEditor() {
         test_type: 'full',
         is_published: false,
         fullscreen_enabled: test.fullscreen_enabled,
-        show_solutions: test.show_solutions
+        show_solutions: test.show_solutions,
+        instructions_json: test.instructions_json,
+        solution_reopen_mode: test.solution_reopen_mode || false,
+        scheduled_at: test.scheduled_at || null
       }])
       .select()
       .single();
@@ -663,17 +676,10 @@ export default function TestEditor() {
           </div>
           
           <div className="flex items-center gap-2">
-            {test && (
-              <TestSettingsPanel
-                test={test}
-                onUpdate={handleUpdateTest}
-                onDuplicate={handleDuplicateTest}
-                onDelete={handleDeleteTest}
-                onTogglePublish={handleTogglePublish}
-                totalQuestions={questions.length}
-                isSaving={isSaving}
-              />
-            )}
+            <Button variant={showSettingsPage ? "default" : "outline"} size="sm" onClick={() => setShowSettingsPage((prev) => !prev)}>
+              <Settings2 className="w-4 h-4 mr-1" />
+              {showSettingsPage ? "Back to editor" : "Advanced settings"}
+            </Button>
             <Button
               variant={test?.is_published ? "destructive" : "default"}
               size="sm"
@@ -694,82 +700,97 @@ export default function TestEditor() {
           </div>
         </div>
 
-        {/* Section Tabs */}
-        <SectionTabs
-          subjects={subjects}
-          sections={sections}
-          activeSubjectId={activeSubjectId}
-          activeSectionId={activeSectionId}
-          onSubjectSelect={(id) => {
-            setActiveSubjectId(id);
-            const firstSection = sections.find(s => s.subject_id === id);
-            setActiveSectionId(firstSection?.id || null);
-            const firstQ = questions.find(q => q.section_id === firstSection?.id);
-            setActiveQuestionId(firstQ?.id || null);
-          }}
-          onSectionSelect={(id) => {
-            setActiveSectionId(id);
-            const firstQ = questions.find(q => q.section_id === id);
-            setActiveQuestionId(firstQ?.id || null);
-          }}
-          onAddSubject={handleAddSubject}
-          onAddSection={handleAddSection}
-          onRenameSubject={handleRenameSubject}
-          onRenameSection={handleRenameSection}
-          onDeleteSubject={handleDeleteSubject}
-          onDeleteSection={handleDeleteSection}
-        />
-
-        {/* Main Content */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Left: Question Palette */}
-          <div className="w-48 border-r border-border bg-card/30 p-3 flex flex-col">
-            <ScrollArea className="flex-1">
-              <QuestionPalette
-                questions={currentSectionQuestions}
-                activeQuestionId={activeQuestionId}
-                onSelectQuestion={setActiveQuestionId}
-                sectionType={activeSection?.section_type}
-              />
-            </ScrollArea>
-            
-            {/* Add Question Button */}
-            <div className="pt-3 border-t border-border mt-3">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleAddQuestion()}
-                className="w-full"
-                disabled={!activeSectionId}
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                Add Question
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowQuestionBin(true)}
-                className="w-full mt-2"
-              >
-                <Trash2 className="w-4 h-4 mr-1" />
-                Bin ({deletedQuestions.length})
-              </Button>
-            </div>
-          </div>
-
-          {/* Right: Question Editor */}
-          <QuestionEditorPanel
-            question={activeQuestion || null}
-            sectionType={activeSection?.section_type || 'single_choice'}
-            onUpdate={handleUpdateQuestion}
-            onDelete={handleDeleteQuestion}
-            onDuplicate={handleDuplicateQuestion}
-            onAddAbove={(id) => handleAddQuestion(id)}
-            onAddBelow={(id) => handleAddQuestion(id)}
+        {showSettingsPage && test ? (
+          <AdvancedTestSettingsPage
+            test={test}
+            totalQuestions={questions.length}
             isSaving={isSaving}
-            hasUnsavedChanges={hasUnsavedChanges}
+            onBack={() => setShowSettingsPage(false)}
+            onUpdate={handleUpdateTest}
+            onTogglePublish={handleTogglePublish}
+            onDuplicate={handleDuplicateTest}
+            onDelete={handleDeleteTest}
           />
-        </div>
+        ) : (
+          <>
+            {/* Section Tabs */}
+            <SectionTabs
+              subjects={subjects}
+              sections={sections}
+              activeSubjectId={activeSubjectId}
+              activeSectionId={activeSectionId}
+              onSubjectSelect={(id) => {
+                setActiveSubjectId(id);
+                const firstSection = sections.find(s => s.subject_id === id);
+                setActiveSectionId(firstSection?.id || null);
+                const firstQ = questions.find(q => q.section_id === firstSection?.id);
+                setActiveQuestionId(firstQ?.id || null);
+              }}
+              onSectionSelect={(id) => {
+                setActiveSectionId(id);
+                const firstQ = questions.find(q => q.section_id === id);
+                setActiveQuestionId(firstQ?.id || null);
+              }}
+              onAddSubject={handleAddSubject}
+              onAddSection={handleAddSection}
+              onRenameSubject={handleRenameSubject}
+              onRenameSection={handleRenameSection}
+              onDeleteSubject={handleDeleteSubject}
+              onDeleteSection={handleDeleteSection}
+            />
+
+            {/* Main Content */}
+            <div className="flex-1 flex overflow-hidden">
+              {/* Left: Question Palette */}
+              <div className="w-48 border-r border-border bg-card/30 p-3 flex flex-col">
+                <ScrollArea className="flex-1">
+                  <QuestionPalette
+                    questions={currentSectionQuestions}
+                    activeQuestionId={activeQuestionId}
+                    onSelectQuestion={setActiveQuestionId}
+                    sectionType={activeSection?.section_type}
+                  />
+                </ScrollArea>
+                
+                {/* Add Question Button */}
+                <div className="pt-3 border-t border-border mt-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleAddQuestion()}
+                    className="w-full"
+                    disabled={!activeSectionId}
+                  >
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add Question
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowQuestionBin(true)}
+                    className="w-full mt-2"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    Bin ({deletedQuestions.length})
+                  </Button>
+                </div>
+              </div>
+
+              {/* Right: Question Editor */}
+              <QuestionEditorPanel
+                question={activeQuestion || null}
+                sectionType={activeSection?.section_type || 'single_choice'}
+                onUpdate={handleUpdateQuestion}
+                onDelete={handleDeleteQuestion}
+                onDuplicate={handleDuplicateQuestion}
+                onAddAbove={(id) => handleAddQuestion(id)}
+                onAddBelow={(id) => handleAddQuestion(id)}
+                isSaving={isSaving}
+                hasUnsavedChanges={hasUnsavedChanges}
+              />
+            </div>
+          </>
+        )}
       </div>
 
       <Dialog open={showQuestionBin} onOpenChange={setShowQuestionBin}>
