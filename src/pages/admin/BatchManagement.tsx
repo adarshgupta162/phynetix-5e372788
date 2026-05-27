@@ -24,7 +24,8 @@ import {
   Users,
   MoreHorizontal,
   FileText,
-  Link2
+  Link2,
+  Users2
 } from "lucide-react";
 import { useAllBatches, useDeleteBatch, type Batch } from "@/hooks/useBatches";
 import { format } from "date-fns";
@@ -49,6 +50,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { BatchEditorDialog } from "@/components/admin/BatchEditorDialog";
 import { BatchTestsManager } from "@/components/admin/BatchTestsManager";
+import { BatchStudentsDialog } from "@/components/admin/BatchStudentsDialog";
 
 const categoryLabels: Record<string, string> = {
   jee_main: "JEE Main",
@@ -66,6 +68,7 @@ export default function BatchManagement() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingBatch, setEditingBatch] = useState<Batch | null>(null);
   const [testsManagerBatch, setTestsManagerBatch] = useState<Batch | null>(null);
+  const [studentsBatch, setStudentsBatch] = useState<Batch | null>(null);
   
   const { data: batches, isLoading } = useAllBatches();
   const deleteBatch = useDeleteBatch();
@@ -254,6 +257,10 @@ export default function BatchManagement() {
                               <Edit className="w-4 h-4 mr-2" />
                               Edit
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setStudentsBatch(batch)}>
+                              <Users2 className="w-4 h-4 mr-2" />
+                              View Students ({batch.current_students || 0})
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setTestsManagerBatch(batch)}>
                               <Link2 className="w-4 h-4 mr-2" />
                               Manage Tests
@@ -297,6 +304,15 @@ export default function BatchManagement() {
               onOpenChange={(open) => !open && setTestsManagerBatch(null)}
               batchId={testsManagerBatch.id}
               batchName={testsManagerBatch.name}
+            />
+          )}
+
+          {studentsBatch && (
+            <BatchStudentsDialog
+              open={!!studentsBatch}
+              onOpenChange={(open) => !open && setStudentsBatch(null)}
+              batchId={studentsBatch.id}
+              batchName={studentsBatch.name}
             />
           )}
 
