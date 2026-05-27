@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { loadEffectiveProctoringSettings } from '@/lib/proctoring/settings';
-import { publishStudentTracks, type LiveKitConnection } from '@/lib/proctoring/livekit';
+import { publishStreams, type PublishHandle } from '@/lib/proctoring/cloudflare-realtime';
 import type {
   MonitoringSessionRecord,
   ProctoringDeviceState,
