@@ -323,7 +323,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     if (activeSession?.id) {
       await logEvent('session_stopped', { payload: { reason } });
     }
-    connectionRef.current?.disconnect();
+    connectionRef.current?.close();
     connectionRef.current = null;
     stopStream(cameraStreamRef.current);
     stopStream(screenStreamRef.current);
@@ -400,7 +400,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   useEffect(() => () => {
     if (screenshotTimerRef.current) window.clearInterval(screenshotTimerRef.current);
     screenshotTimerRef.current = null;
-    connectionRef.current?.disconnect();
+    connectionRef.current?.close();
     stopStream(cameraStreamRef.current);
     stopStream(screenStreamRef.current);
     if (screenVideoRef.current) {
