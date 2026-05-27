@@ -77,11 +77,13 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const { error } = await supabase.from('monitoring_events').insert({
       session_id: String(activeSession.id),
       event_type: eventType,
-      question_id: event?.questionId ?? null,
-      subject_name: event?.subjectName ?? null,
-      payload: event?.payload ?? {},
+      metadata: {
+        question_id: event?.questionId ?? null,
+        subject_name: event?.subjectName ?? null,
+        ...(event?.payload ?? {}),
+      },
       created_at: nowIso(),
-    });
+    } as any);
     if (error) console.warn('Failed to log proctoring event', error);
   }, []);
 
