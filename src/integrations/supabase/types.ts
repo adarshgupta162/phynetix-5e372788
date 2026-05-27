@@ -154,6 +154,7 @@ export type Database = {
           features: Json | null
           id: string
           institution_id: string | null
+          instructions: string | null
           is_active: boolean | null
           is_featured: boolean | null
           join_code: string | null
@@ -166,6 +167,7 @@ export type Database = {
           syllabus: Json | null
           thumbnail_url: string | null
           updated_at: string | null
+          welcome_message: string | null
         }
         Insert: {
           category?: string | null
@@ -178,6 +180,7 @@ export type Database = {
           features?: Json | null
           id?: string
           institution_id?: string | null
+          instructions?: string | null
           is_active?: boolean | null
           is_featured?: boolean | null
           join_code?: string | null
@@ -190,6 +193,7 @@ export type Database = {
           syllabus?: Json | null
           thumbnail_url?: string | null
           updated_at?: string | null
+          welcome_message?: string | null
         }
         Update: {
           category?: string | null
@@ -202,6 +206,7 @@ export type Database = {
           features?: Json | null
           id?: string
           institution_id?: string | null
+          instructions?: string | null
           is_active?: boolean | null
           is_featured?: boolean | null
           join_code?: string | null
@@ -214,6 +219,7 @@ export type Database = {
           syllabus?: Json | null
           thumbnail_url?: string | null
           updated_at?: string | null
+          welcome_message?: string | null
         }
         Relationships: [
           {
@@ -2518,6 +2524,10 @@ export type Database = {
           deleted_recordings: number
           deleted_sessions: number
         }[]
+      }
+      recompute_batch_students: {
+        Args: { _batch_id: string }
+        Returns: undefined
       }
       user_completed_test: {
         Args: { _test_id: string; _user_id: string }
