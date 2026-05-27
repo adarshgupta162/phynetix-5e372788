@@ -2054,6 +2054,7 @@ export type Database = {
           extra_time_minutes: number | null
           fullscreen_exit_count: number | null
           id: string
+          last_submitted_at: string | null
           percentile: number | null
           rank: number | null
           result_available_at: string | null
@@ -2075,6 +2076,7 @@ export type Database = {
           extra_time_minutes?: number | null
           fullscreen_exit_count?: number | null
           id?: string
+          last_submitted_at?: string | null
           percentile?: number | null
           rank?: number | null
           result_available_at?: string | null
@@ -2096,6 +2098,7 @@ export type Database = {
           extra_time_minutes?: number | null
           fullscreen_exit_count?: number | null
           id?: string
+          last_submitted_at?: string | null
           percentile?: number | null
           rank?: number | null
           result_available_at?: string | null
