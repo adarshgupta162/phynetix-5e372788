@@ -383,7 +383,7 @@ export default function PDFTestInterface() {
   const resumeTest = async () => {
     if (!existingAttempt) return;
     try {
-      await proctoring.prepare();
+      await proctoring.prepare({ silent: true });
       await proctoring.start(existingAttempt.id, { interface: 'pdf', resumed: true });
     } catch (error: any) {
       toast({ title: 'Live monitoring required', description: error.message || 'Please allow required monitoring permissions.', variant: 'destructive' });

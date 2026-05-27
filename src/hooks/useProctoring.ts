@@ -54,8 +54,6 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const connectionRef = useRef<PublishHandle | null>(null);
   const sessionRef = useRef<ProctoringSession | null>(null);
   const devicesRef = useRef<ProctoringDeviceState>({ camera: false, microphone: false, screen: false });
-  const screenshotTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { devicesRef.current = devices; }, [devices]);
