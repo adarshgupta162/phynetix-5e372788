@@ -350,7 +350,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     if (!session?.id) return;
     if (!settings?.screenshot_enabled) return;
     const seconds = Math.max(10, settings.screenshot_interval_seconds ?? 120);
-    screenshotTimerRef.current = window.setInterval(() => {
+    screenshotTimerRef.current = setInterval(() => {
       captureScreenshot().catch((error) => console.warn('Screenshot capture failed', error));
     }, seconds * 1000);
     return () => {
