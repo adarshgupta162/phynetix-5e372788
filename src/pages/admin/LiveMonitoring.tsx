@@ -74,7 +74,7 @@ function LiveViewer({ session, events, screenshots }: { session: LiveSession; ev
           <h3 className="font-semibold">Attempt activity</h3>
           <p className="text-sm text-muted-foreground">Attempt: {session.attempt_id}</p>
           <p className="text-sm text-muted-foreground">Fullscreen exits: {fullscreenExits}</p>
-          <p className="text-sm text-muted-foreground">Current question: {recentQuestionEvent?.payload?.question_index ?? recentQuestionEvent?.question_id ?? '—'}</p>
+          <p className="text-sm text-muted-foreground">Current question: {String(recentQuestionEvent?.payload?.question_index ?? recentQuestionEvent?.question_id ?? '—')}</p>
           <p className="text-sm text-muted-foreground">Current subject: {recentSubjectEvent?.subject_name || '—'}</p>
           <p className="text-sm text-muted-foreground">Session ID: {session.id}</p>
         </div>
