@@ -234,6 +234,13 @@ export default function NormalTestInterface() {
           .eq("test_id", testId).eq("user_id", user.id).maybeSingle();
         if (ea) {
           if (ea.completed_at) { navigate(`/test/${testId}/analysis`); return; }
+          try {
+            await proctoring.prepare({ silent: true });
+          } catch (error: any) {
+            toast({ title: "Live monitoring required", description: error.message || "Please allow required monitoring permissions.", variant: "destructive" });
+            setLoading(false);
+            return;
+          }
           setHasExistingAttempt(true); setCurrentScreen(4);
           setFullscreenExitCount(ea.fullscreen_exit_count || 0);
           initializeTest(); return;
