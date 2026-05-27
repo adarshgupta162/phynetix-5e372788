@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { loadEffectiveProctoringSettings } from '@/lib/proctoring/settings';
-import { publishStreams, type PublishHandle } from '@/lib/proctoring/cloudflare-realtime';
+import { publishStreams, type PublishHandle } from '@/lib/proctoring/livekit';
 import type {
   MonitoringSessionRecord,
   ProctoringDeviceState,
@@ -247,17 +247,18 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const studentId = userId ?? (await supabase.auth.getUser()).data.user?.id ?? null;
     const deviceState = devicesRef.current;
 
-    // Try to publish to Cloudflare Realtime first (so we can store track ids on the row)
+    // Try to publish to LiveKit first (so we can store room/identity on the row)
     let publish: PublishHandle | null = null;
     try {
       if (cameraStreamRef.current || screenStreamRef.current) {
         publish = await publishStreams({
           cameraStream: cameraStreamRef.current,
           screenStream: screenStreamRef.current,
+          roomName: `proc-${attemptId}`,
         });
       }
     } catch (e) {
-      console.error('Cloudflare Realtime publish failed', e);
+      console.error('LiveKit publish failed', e);
     }
 
     // Fetch denormalized names for the admin grid
@@ -283,10 +284,14 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         student_name: studentName,
         test_name: testName,
         status: 'active',
-        cf_session_id: publish?.cfSessionId ?? null,
-        cf_camera_track: publish?.cameraTrackName ?? null,
-        cf_microphone_track: publish?.microphoneTrackName ?? null,
-        cf_screen_track: publish?.screenTrackName ?? null,
+        // Reuse cf_* columns to avoid a schema migration:
+        //   cf_session_id   = LiveKit room name
+        //   cf_camera_track = publisher identity (admin filters tracks by this)
+        //   cf_screen_track = "1" when screen share is active
+        cf_session_id: publish?.roomName ?? null,
+        cf_camera_track: publish?.identity ?? null,
+        cf_microphone_track: publish?.hasCamera ? '1' : null,
+        cf_screen_track: publish?.hasScreen ? '1' : null,
         last_heartbeat_at: new Date().toISOString(),
         metadata: {
           ...metadata,
@@ -295,6 +300,9 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
           test_name: testName,
           student_name: studentName,
           consent_accepted: true,
+          provider: 'livekit',
+          livekit_room: publish?.roomName ?? null,
+          livekit_identity: publish?.identity ?? null,
         },
       } as any)
       .select('*')
@@ -311,10 +319,10 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const nextSession = buildSessionModel(data, { devices: deviceState, studentId, testId });
     setSession(nextSession);
     sessionRef.current = nextSession;
-    await logEvent('session_started', { payload: { devices: deviceState, cf_session_id: publish?.cfSessionId } });
+    await logEvent('session_started', { payload: { devices: deviceState, livekit_room: publish?.roomName } });
     if (deviceState.camera) await logEvent('camera_started');
     if (deviceState.screen) await logEvent('screen_share_started');
-    if (publish) await logEvent('provider_connected', { payload: { provider: 'cloudflare-realtime' } });
+    if (publish) await logEvent('provider_connected', { payload: { provider: 'livekit' } });
 
     setIsStreaming(true);
     return { ...nextSession, session: nextSession };

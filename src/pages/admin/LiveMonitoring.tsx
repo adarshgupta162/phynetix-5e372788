@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { pullStreams, type PullHandle } from '@/lib/proctoring/cloudflare-realtime';
+import { subscribeToRoom, type SubscribeHandle } from '@/lib/proctoring/livekit';
 
 type Session = {
   id: string;
@@ -63,7 +63,7 @@ function DeviceBadges({ s }: { s: Session }) {
 function LiveViewer({ session, events }: { session: Session; events: EventRow[] }) {
   const cameraRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLVideoElement>(null);
-  const handlesRef = useRef<PullHandle[]>([]);
+  const handleRef = useRef<SubscribeHandle | null>(null);
   const [status, setStatus] = useState<'connecting' | 'live' | 'error' | 'no-stream'>('connecting');
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
@@ -71,41 +71,34 @@ function LiveViewer({ session, events }: { session: Session; events: EventRow[] 
     let cancelled = false;
 
     async function connect() {
-      const trackNames: string[] = [];
-      if (session.cf_camera_track) trackNames.push(session.cf_camera_track);
-      if (session.cf_microphone_track) trackNames.push(session.cf_microphone_track);
-      if (session.cf_screen_track) trackNames.push(session.cf_screen_track);
-
-      if (!session.cf_session_id || !trackNames.length) {
+      if (!session.cf_session_id) {
         setStatus('no-stream');
         return;
       }
       try {
-        // Pull camera+mic together, screen separately, so we can render in two <video>.
-        const camNames = [session.cf_camera_track, session.cf_microphone_track].filter(Boolean) as string[];
-        const scrNames = [session.cf_screen_track].filter(Boolean) as string[];
-
-        if (camNames.length) {
-          const h = await pullStreams({ publisherCfSessionId: session.cf_session_id, trackNames: camNames });
-          if (cancelled) { h.close(); return; }
-          handlesRef.current.push(h);
-          if (cameraRef.current) {
-            cameraRef.current.srcObject = h.stream;
+        const refresh = () => {
+          const h = handleRef.current;
+          if (!h) return;
+          if (cameraRef.current && cameraRef.current.srcObject !== h.cameraStream) {
+            cameraRef.current.srcObject = h.cameraStream;
             cameraRef.current.play().catch(() => {});
           }
-        }
-        if (scrNames.length) {
-          const h = await pullStreams({ publisherCfSessionId: session.cf_session_id, trackNames: scrNames });
-          if (cancelled) { h.close(); return; }
-          handlesRef.current.push(h);
-          if (screenRef.current) {
-            screenRef.current.srcObject = h.stream;
+          if (screenRef.current && screenRef.current.srcObject !== h.screenStream) {
+            screenRef.current.srcObject = h.screenStream;
             screenRef.current.play().catch(() => {});
           }
-        }
+        };
+        const h = await subscribeToRoom({
+          roomName: session.cf_session_id,
+          publisherIdentity: session.cf_camera_track,
+          onUpdate: refresh,
+        });
+        if (cancelled) { h.close(); return; }
+        handleRef.current = h;
+        refresh();
         setStatus('live');
       } catch (e: any) {
-        console.error('Failed to pull streams', e);
+        console.error('Failed to subscribe to LiveKit room', e);
         setErrMsg(e?.message || String(e));
         setStatus('error');
       }
@@ -114,10 +107,10 @@ function LiveViewer({ session, events }: { session: Session; events: EventRow[] 
 
     return () => {
       cancelled = true;
-      handlesRef.current.forEach((h) => h.close());
-      handlesRef.current = [];
+      handleRef.current?.close();
+      handleRef.current = null;
     };
-  }, [session.cf_session_id, session.cf_camera_track, session.cf_microphone_track, session.cf_screen_track]);
+  }, [session.cf_session_id, session.cf_camera_track]);
 
   const fullscreenExits = events.filter((e) => e.event_type === 'fullscreen_exit').length;
   const tabSwitches = events.filter((e) => e.event_type === 'tab_switch').length;
