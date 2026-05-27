@@ -843,25 +843,58 @@ export type Database = {
       }
       monitoring_sessions: {
         Row: {
+          attempt_id: string | null
+          cf_camera_track: string | null
+          cf_microphone_track: string | null
+          cf_screen_track: string | null
+          cf_session_id: string | null
+          ended_at: string | null
           id: string
+          last_heartbeat_at: string | null
+          metadata: Json
           started_at: string | null
           status: string | null
           student_id: string | null
+          student_name: string | null
           test_id: string | null
+          test_name: string | null
+          updated_at: string
         }
         Insert: {
+          attempt_id?: string | null
+          cf_camera_track?: string | null
+          cf_microphone_track?: string | null
+          cf_screen_track?: string | null
+          cf_session_id?: string | null
+          ended_at?: string | null
           id?: string
+          last_heartbeat_at?: string | null
+          metadata?: Json
           started_at?: string | null
           status?: string | null
           student_id?: string | null
+          student_name?: string | null
           test_id?: string | null
+          test_name?: string | null
+          updated_at?: string
         }
         Update: {
+          attempt_id?: string | null
+          cf_camera_track?: string | null
+          cf_microphone_track?: string | null
+          cf_screen_track?: string | null
+          cf_session_id?: string | null
+          ended_at?: string | null
           id?: string
+          last_heartbeat_at?: string | null
+          metadata?: Json
           started_at?: string | null
           status?: string | null
           student_id?: string | null
+          student_name?: string | null
           test_id?: string | null
+          test_name?: string | null
+          updated_at?: string
         }
         Relationships: []
       }

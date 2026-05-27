@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { loadEffectiveProctoringSettings } from '@/lib/proctoring/settings';
-import { publishStudentTracks, type LiveKitConnection } from '@/lib/proctoring/livekit';
+import { publishStreams, type PublishHandle } from '@/lib/proctoring/cloudflare-realtime';
 import type {
   MonitoringSessionRecord,
   ProctoringDeviceState,
@@ -51,7 +51,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const [isStreaming, setIsStreaming] = useState(false);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
-  const connectionRef = useRef<LiveKitConnection | null>(null);
+  const connectionRef = useRef<PublishHandle | null>(null);
   const sessionRef = useRef<ProctoringSession | null>(null);
   const devicesRef = useRef<ProctoringDeviceState>({ camera: false, microphone: false, screen: false });
   const screenshotTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -77,11 +77,13 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const { error } = await supabase.from('monitoring_events').insert({
       session_id: String(activeSession.id),
       event_type: eventType,
-      question_id: event?.questionId ?? null,
-      subject_name: event?.subjectName ?? null,
-      payload: event?.payload ?? {},
+      metadata: {
+        question_id: event?.questionId ?? null,
+        subject_name: event?.subjectName ?? null,
+        ...(event?.payload ?? {}),
+      },
       created_at: nowIso(),
-    });
+    } as any);
     if (error) console.warn('Failed to log proctoring event', error);
   }, []);
 
@@ -244,64 +246,75 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
 
     const studentId = userId ?? (await supabase.auth.getUser()).data.user?.id ?? null;
     const deviceState = devicesRef.current;
+
+    // Try to publish to Cloudflare Realtime first (so we can store track ids on the row)
+    let publish: PublishHandle | null = null;
+    try {
+      if (cameraStreamRef.current || screenStreamRef.current) {
+        publish = await publishStreams({
+          cameraStream: cameraStreamRef.current,
+          screenStream: screenStreamRef.current,
+        });
+      }
+    } catch (e) {
+      console.error('Cloudflare Realtime publish failed', e);
+    }
+
+    // Fetch denormalized names for the admin grid
+    let studentName: string | null = null;
+    let testName: string | null = null;
+    try {
+      if (studentId) {
+        const { data: p } = await supabase.from('profiles').select('full_name').eq('id', studentId).maybeSingle();
+        studentName = (p as any)?.full_name ?? null;
+      }
+      if (testId) {
+        const { data: t } = await supabase.from('tests').select('name').eq('id', testId).maybeSingle();
+        testName = (t as any)?.name ?? null;
+      }
+    } catch { /* best effort */ }
+
     const { data, error } = await supabase
       .from('monitoring_sessions')
       .insert({
         attempt_id: String(attemptId),
         student_id: studentId ? String(studentId) : null,
+        test_id: testId ?? null,
+        student_name: studentName,
+        test_name: testName,
         status: 'active',
+        cf_session_id: publish?.cfSessionId ?? null,
+        cf_camera_track: publish?.cameraTrackName ?? null,
+        cf_microphone_track: publish?.microphoneTrackName ?? null,
+        cf_screen_track: publish?.screenTrackName ?? null,
+        last_heartbeat_at: new Date().toISOString(),
         metadata: {
           ...metadata,
           devices: deviceState,
           test_id: testId ?? null,
+          test_name: testName,
+          student_name: studentName,
           consent_accepted: true,
         },
-      })
+      } as any)
       .select('*')
       .single();
-    if (error) {
+
+    if (error || !data || !isMonitoringSessionRecord(data)) {
       console.warn('Failed to start live monitoring session', error);
-      setIsStreaming(false);
-      return null;
-    }
-    if (!data) {
-      console.warn('Live monitoring session response missing data');
-      setIsStreaming(false);
-      return null;
-    }
-    if (!isMonitoringSessionRecord(data)) {
-      console.warn('Live monitoring session response has unexpected shape');
+      publish?.close();
       setIsStreaming(false);
       return null;
     }
 
+    connectionRef.current = publish;
     const nextSession = buildSessionModel(data, { devices: deviceState, studentId, testId });
     setSession(nextSession);
     sessionRef.current = nextSession;
-    await logEvent('session_started', { payload: { devices: deviceState } });
-    if (deviceState.camera) await logEvent('camera_started', { payload: { camera: true } });
-    if (deviceState.screen) await logEvent('screen_share_started', { payload: { screen: true } });
-    await logEvent('device_state', { payload: { devices: deviceState } });
-
-    const providerMetadata = metadata.provider;
-    const provider = typeof providerMetadata === 'object' && providerMetadata
-      ? providerMetadata as { livekit_url?: string; token?: string }
-      : null;
-    try {
-      if (provider?.livekit_url && provider?.token) {
-        connectionRef.current = await publishStudentTracks({
-          url: provider.livekit_url,
-          token: provider.token,
-          cameraStream: cameraStreamRef.current,
-          screenStream: screenStreamRef.current,
-          onDisconnected: () => logEvent('provider_disconnected'),
-        });
-        if (connectionRef.current) await logEvent('provider_connected');
-      }
-    } catch (providerError) {
-      await logEvent('failure', { payload: { area: 'provider_connect', message: String(providerError) } });
-      console.error('Failed to connect live monitoring provider', providerError);
-    }
+    await logEvent('session_started', { payload: { devices: deviceState, cf_session_id: publish?.cfSessionId } });
+    if (deviceState.camera) await logEvent('camera_started');
+    if (deviceState.screen) await logEvent('screen_share_started');
+    if (publish) await logEvent('provider_connected', { payload: { provider: 'cloudflare-realtime' } });
 
     setIsStreaming(true);
     return { ...nextSession, session: nextSession };
@@ -312,7 +325,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     if (activeSession?.id) {
       await logEvent('session_stopped', { payload: { reason } });
     }
-    connectionRef.current?.disconnect();
+    connectionRef.current?.close();
     connectionRef.current = null;
     stopStream(cameraStreamRef.current);
     stopStream(screenStreamRef.current);
@@ -342,7 +355,17 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
 
   useEffect(() => {
     if (!session?.id) return;
-    const interval = window.setInterval(() => logEvent('heartbeat', { payload: { devices } }), 20000);
+    const tick = async () => {
+      void logEvent('heartbeat', { payload: { devices } });
+      try {
+        await supabase
+          .from('monitoring_sessions')
+          .update({ last_heartbeat_at: new Date().toISOString() } as any)
+          .eq('id', session.id);
+      } catch { /* best effort */ }
+    };
+    const interval = window.setInterval(tick, 15000);
+    void tick();
     return () => window.clearInterval(interval);
   }, [devices, logEvent, session?.id]);
 
@@ -350,7 +373,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     if (!session?.id) return;
     if (!settings?.screenshot_enabled) return;
     const seconds = Math.max(10, settings.screenshot_interval_seconds ?? 120);
-    screenshotTimerRef.current = window.setInterval(() => {
+    screenshotTimerRef.current = setInterval(() => {
       captureScreenshot().catch((error) => console.warn('Screenshot capture failed', error));
     }, seconds * 1000);
     return () => {
@@ -389,7 +412,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   useEffect(() => () => {
     if (screenshotTimerRef.current) window.clearInterval(screenshotTimerRef.current);
     screenshotTimerRef.current = null;
-    connectionRef.current?.disconnect();
+    connectionRef.current?.close();
     stopStream(cameraStreamRef.current);
     stopStream(screenStreamRef.current);
     if (screenVideoRef.current) {

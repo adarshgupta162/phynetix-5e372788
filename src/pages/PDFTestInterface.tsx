@@ -43,6 +43,7 @@ interface TestData {
   fullscreen_enabled: boolean;
   answer_key_uploaded: boolean;
   scheduled_at: string | null;
+  result_release_delay_minutes?: number | null;
 }
 
 interface ExistingAttempt {
