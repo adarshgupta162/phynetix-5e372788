@@ -51,7 +51,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const [isStreaming, setIsStreaming] = useState(false);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
-  const connectionRef = useRef<LiveKitConnection | null>(null);
+  const connectionRef = useRef<PublishHandle | null>(null);
   const sessionRef = useRef<ProctoringSession | null>(null);
   const devicesRef = useRef<ProctoringDeviceState>({ camera: false, microphone: false, screen: false });
   const screenshotTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
