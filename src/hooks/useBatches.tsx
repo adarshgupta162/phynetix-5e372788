@@ -108,6 +108,8 @@ export function useCreateBatch() {
           name: batch.name,
           description: batch.description,
           short_description: batch.short_description,
+          instructions: (batch as any).instructions,
+          welcome_message: (batch as any).welcome_message,
           price: batch.price || 0,
           original_price: batch.original_price,
           category: batch.category,

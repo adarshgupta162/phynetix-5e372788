@@ -21,6 +21,7 @@ import {
 const EXPECTED_COLUMNS = [
   "subject", "chapter", "topic", "question_text",
   "option_1", "option_2", "option_3", "option_4",
+  "option_1_image", "option_2_image", "option_3_image", "option_4_image",
   "correct_answer", "question_type", "marks", "negative_marks",
   "difficulty", "time_seconds", "solution_text", "tags",
   "question_image_url", "solution_image_url",
@@ -62,9 +63,9 @@ function mapRowToQuestion(row: Record<string, string>, userId: string) {
 
   const LETTERS = ["A", "B", "C", "D", "E", "F"];
   const options = [1, 2, 3, 4]
-    .map((i) => row[`option_${i}`]?.trim())
-    .filter(Boolean)
-    .map((text, i) => ({ label: LETTERS[i], text, image_url: null }));
+    .map((i) => ({ text: row[`option_${i}`]?.trim(), image_url: row[`option_${i}_image`]?.trim() || null }))
+    .filter((o) => o.text || o.image_url)
+    .map((o, i) => ({ label: LETTERS[i], text: o.text || "", image_url: o.image_url }));
 
   let correctAnswer: any;
   const ca = row.correct_answer?.trim();
@@ -139,6 +140,7 @@ function buildTemplateWorkbook(): XLSX.WorkBook {
     ["topic", "No", "Dropdown of all topics from JEE syllabus"],
     ["question_text", "Yes", "Plain text or LaTeX (KaTeX). e.g. $\\\\int x\\\\,dx$"],
     ["option_1 .. option_4", "MCQ only", "Required for single_correct / multiple_correct. Leave blank for integer."],
+    ["option_1_image .. option_4_image", "No", "Optional direct image URL per option (https://...). Combine with text or use image-only."],
     ["correct_answer", "Yes", "single_correct: 1|2|3|4   |   multiple_correct: 1,3   |   integer: numeric value"],
     ["question_type", "Yes", "Dropdown: single_correct / multiple_correct / integer"],
     ["marks", "No", "Default 4. Any positive number."],

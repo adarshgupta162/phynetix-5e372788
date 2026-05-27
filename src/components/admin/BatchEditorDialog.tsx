@@ -31,6 +31,8 @@ const batchSchema = z.object({
   name: z.string().min(1, "Name is required"),
   short_description: z.string().optional(),
   description: z.string().optional(),
+  instructions: z.string().optional(),
+  welcome_message: z.string().optional(),
   category: z.string().min(1, "Category is required"),
   price: z.number().min(0, "Price must be positive"),
   original_price: z.number().optional().nullable(),
@@ -81,6 +83,8 @@ export function BatchEditorDialog({ open, onOpenChange, batch }: BatchEditorDial
       name: "",
       short_description: "",
       description: "",
+      instructions: "",
+      welcome_message: "",
       category: "jee_main",
       price: 0,
       original_price: null,
@@ -100,6 +104,8 @@ export function BatchEditorDialog({ open, onOpenChange, batch }: BatchEditorDial
         name: batch.name,
         short_description: batch.short_description || "",
         description: batch.description || "",
+        instructions: (batch as any).instructions || "",
+        welcome_message: (batch as any).welcome_message || "",
         category: batch.category || "jee_main",
         price: batch.price,
         original_price: batch.original_price,
@@ -116,6 +122,8 @@ export function BatchEditorDialog({ open, onOpenChange, batch }: BatchEditorDial
         name: "",
         short_description: "",
         description: "",
+        instructions: "",
+        welcome_message: "",
         category: "jee_main",
         price: 0,
         original_price: null,
@@ -263,6 +271,26 @@ export function BatchEditorDialog({ open, onOpenChange, batch }: BatchEditorDial
                   placeholder="Detailed batch description..."
                   rows={4}
                   {...register("description")}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="welcome_message">Welcome Message (shown when student opens batch)</Label>
+                <Textarea
+                  id="welcome_message"
+                  placeholder="Welcome aboard! Here's how to make the most of this batch..."
+                  rows={3}
+                  {...register("welcome_message")}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="instructions">Instructions / Rules (shown on batch home)</Label>
+                <Textarea
+                  id="instructions"
+                  placeholder="1. Attempt tests in order. 2. Watch lectures before DPP. 3. ..."
+                  rows={5}
+                  {...register("instructions")}
                 />
               </div>
             </div>
