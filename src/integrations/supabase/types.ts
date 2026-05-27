@@ -799,6 +799,48 @@ export type Database = {
           },
         ]
       }
+      monitoring_screenshots: {
+        Row: {
+          attempt_id: string | null
+          captured_at: string
+          created_at: string
+          id: string
+          image_url: string | null
+          metadata: Json
+          session_id: string | null
+          storage_bucket: string | null
+          storage_path: string | null
+          test_id: string | null
+          user_id: string
+        }
+        Insert: {
+          attempt_id?: string | null
+          captured_at?: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          metadata?: Json
+          session_id?: string | null
+          storage_bucket?: string | null
+          storage_path?: string | null
+          test_id?: string | null
+          user_id: string
+        }
+        Update: {
+          attempt_id?: string | null
+          captured_at?: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          metadata?: Json
+          session_id?: string | null
+          storage_bucket?: string | null
+          storage_path?: string | null
+          test_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       monitoring_sessions: {
         Row: {
           id: string
@@ -1388,6 +1430,8 @@ export type Database = {
           require_microphone: boolean
           require_screen: boolean
           retention_days: number
+          screenshot_enabled: boolean
+          screenshot_interval_seconds: number
           test_id: string
           updated_at: string
           updated_by: string | null
@@ -1405,6 +1449,8 @@ export type Database = {
           require_microphone?: boolean
           require_screen?: boolean
           retention_days?: number
+          screenshot_enabled?: boolean
+          screenshot_interval_seconds?: number
           test_id: string
           updated_at?: string
           updated_by?: string | null
@@ -1422,6 +1468,8 @@ export type Database = {
           require_microphone?: boolean
           require_screen?: boolean
           retention_days?: number
+          screenshot_enabled?: boolean
+          screenshot_interval_seconds?: number
           test_id?: string
           updated_at?: string
           updated_by?: string | null
@@ -1970,13 +2018,17 @@ export type Database = {
           answers: Json | null
           awaiting_result: boolean | null
           completed_at: string | null
+          extra_time_minutes: number | null
           fullscreen_exit_count: number | null
           id: string
           percentile: number | null
           rank: number | null
+          result_available_at: string | null
+          result_release_delay_minutes: number | null
           roll_number: string | null
           score: number | null
           started_at: string
+          submit_disabled: boolean | null
           test_id: string
           time_per_question: Json | null
           time_taken_seconds: number | null
@@ -1987,13 +2039,17 @@ export type Database = {
           answers?: Json | null
           awaiting_result?: boolean | null
           completed_at?: string | null
+          extra_time_minutes?: number | null
           fullscreen_exit_count?: number | null
           id?: string
           percentile?: number | null
           rank?: number | null
+          result_available_at?: string | null
+          result_release_delay_minutes?: number | null
           roll_number?: string | null
           score?: number | null
           started_at?: string
+          submit_disabled?: boolean | null
           test_id: string
           time_per_question?: Json | null
           time_taken_seconds?: number | null
@@ -2004,13 +2060,17 @@ export type Database = {
           answers?: Json | null
           awaiting_result?: boolean | null
           completed_at?: string | null
+          extra_time_minutes?: number | null
           fullscreen_exit_count?: number | null
           id?: string
           percentile?: number | null
           rank?: number | null
+          result_available_at?: string | null
+          result_release_delay_minutes?: number | null
           roll_number?: string | null
           score?: number | null
           started_at?: string
+          submit_disabled?: boolean | null
           test_id?: string
           time_per_question?: Json | null
           time_taken_seconds?: number | null
@@ -2243,6 +2303,53 @@ export type Database = {
           },
         ]
       }
+      test_user_overrides: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          extra_time_minutes: number
+          id: string
+          notes: string | null
+          result_release_delay_minutes: number
+          submit_disabled: boolean
+          test_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          extra_time_minutes?: number
+          id?: string
+          notes?: string | null
+          result_release_delay_minutes?: number
+          submit_disabled?: boolean
+          test_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          extra_time_minutes?: number
+          id?: string
+          notes?: string | null
+          result_release_delay_minutes?: number
+          submit_disabled?: boolean
+          test_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_user_overrides_test_id_fkey"
+            columns: ["test_id"]
+            isOneToOne: false
+            referencedRelation: "tests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tests: {
         Row: {
           answer_key_uploaded: boolean | null
@@ -2257,6 +2364,7 @@ export type Database = {
           is_published: boolean | null
           name: string
           pdf_url: string | null
+          result_release_delay_minutes: number | null
           scheduled_at: string | null
           show_solutions: boolean | null
           solution_reopen_mode: boolean | null
@@ -2276,6 +2384,7 @@ export type Database = {
           is_published?: boolean | null
           name: string
           pdf_url?: string | null
+          result_release_delay_minutes?: number | null
           scheduled_at?: string | null
           show_solutions?: boolean | null
           solution_reopen_mode?: boolean | null
@@ -2295,6 +2404,7 @@ export type Database = {
           is_published?: boolean | null
           name?: string
           pdf_url?: string | null
+          result_release_delay_minutes?: number | null
           scheduled_at?: string | null
           show_solutions?: boolean | null
           solution_reopen_mode?: boolean | null
