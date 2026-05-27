@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, ChevronUp, BookOpen } from "lucide-react";
+import { ChevronDown, ChevronUp, BookOpen, Contrast } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { LatexRenderer } from "@/components/ui/latex-renderer";
@@ -29,6 +29,8 @@ export function SolutionSection({
   solutionImageUrls,
 }: SolutionSectionProps) {
   const [showWorking, setShowWorking] = useState(true);
+  const [inverted, setInverted] = useState(true);
+
 
   if (isAttemptMode) {
     return (
@@ -94,11 +96,27 @@ export function SolutionSection({
           >
             {(() => {
               const allImages = solutionImageUrls?.length ? solutionImageUrls : solutionImageUrl ? [solutionImageUrl] : [];
-              return allImages.length > 0 && (
+              if (!allImages.length) return null;
+              return (
                 <div className="space-y-2">
+                  <div className="flex justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setInverted((v) => !v)}
+                      className="text-xs"
+                    >
+                      <Contrast className="w-3.5 h-3.5 mr-1" />
+                      {inverted ? "Original colors" : "Invert colors"}
+                    </Button>
+                  </div>
                   {allImages.map((url, idx) => (
-                    <div key={idx} className="rounded-lg overflow-hidden border border-border/50">
-                      <img src={url} alt={`Solution ${idx + 1}`} className="max-w-full mx-auto" />
+                    <div key={idx} className="rounded-lg overflow-hidden border border-border/50 bg-black p-2 flex justify-center">
+                      <img
+                        src={url}
+                        alt={`Solution ${idx + 1}`}
+                        className={cn("max-w-full", inverted && "invert hue-rotate-180")}
+                      />
                     </div>
                   ))}
                 </div>

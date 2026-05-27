@@ -36,6 +36,7 @@ interface QuestionSolution {
   finalAnswer: string;
   chapter: string;
   topic: string;
+  imageUrl?: string | null;
 }
 
 interface Question {
@@ -248,6 +249,7 @@ export default function SolutionsPage() {
               finalAnswer: `The correct answer is ${correctAnswer}`,
               chapter: q.test_sections?.name || "Chapter",
               topic: subject,
+              imageUrl: q.solution_image_url || null,
             },
           };
         });
@@ -404,11 +406,12 @@ export default function SolutionsPage() {
                 />
 
                 <SolutionSection
-                  solutionText={currentQuestion.solution.text}
-                  steps={currentQuestion.solution.steps}
-                  finalAnswer={currentQuestion.solution.finalAnswer}
-                  chapter={currentQuestion.solution.chapter}
-                  topic={currentQuestion.solution.topic}
+                 solutionText={currentQuestion.solution.text}
+                 steps={currentQuestion.solution.steps}
+                 finalAnswer={currentQuestion.solution.finalAnswer}
+                 chapter={currentQuestion.solution.chapter}
+                 topic={currentQuestion.solution.topic}
+                 solutionImageUrl={currentQuestion.solution.imageUrl || undefined}
                   isAttemptMode={attemptMode && !showSolution}
                   onShowSolution={() => setShowSolution(true)}
                 />

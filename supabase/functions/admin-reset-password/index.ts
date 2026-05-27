@@ -32,14 +32,18 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    // Check if requester is admin
-    const { data: roleData } = await supabaseAdmin
+    // Check if requester is admin (use maybeSingle to avoid throw when none)
+    const { data: roleData, error: roleErr } = await supabaseAdmin
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
       .eq("role", "admin")
-      .single();
+      .maybeSingle();
 
+    if (roleErr) {
+      console.error("Role lookup error:", roleErr);
+      throw new Error("Failed to verify admin role");
+    }
     if (!roleData) {
       throw new Error("Unauthorized - Admin access required");
     }
