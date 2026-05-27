@@ -155,9 +155,6 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       failures.push('screen');
       console.error('Screen permission failed', error);
     }
-      failures.push('screen');
-      console.error('Screen permission failed', error);
-    }
 
     const missingRequired = [
       effective.require_camera && !nextDevices.camera ? 'camera' : null,
