@@ -185,6 +185,10 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
 
     // Try to publish to LiveKit first (so we can store room/identity on the row)
     let publish: PublishHandle | null = null;
+    const liveStreamRequired = effective.require_camera || effective.require_microphone || effective.require_screen;
+    if (liveStreamRequired && !cameraStreamRef.current && !screenStreamRef.current) {
+      throw new Error('Live stream could not start. Please allow camera and screen sharing permissions, then resume the test again.');
+    }
     try {
       if (cameraStreamRef.current || screenStreamRef.current) {
         publish = await publishStreams({
@@ -195,6 +199,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       }
     } catch (e) {
       console.error('LiveKit publish failed', e);
+      throw new Error('Live stream connection failed. Please allow camera and screen sharing permissions, then resume the test again.');
     }
 
     // Fetch denormalized names for the admin grid
