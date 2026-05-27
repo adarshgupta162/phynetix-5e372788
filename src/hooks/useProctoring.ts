@@ -160,7 +160,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       effective.require_screen && !nextDevices.screen ? 'screen' : null,
     ].filter(Boolean);
 
-    if (missingRequired.length && !effective.allow_optional_device_fallback) {
+    if (missingRequired.length) {
       stopStream(cameraStreamRef.current);
       stopStream(screenStreamRef.current);
       cameraStreamRef.current = null;
