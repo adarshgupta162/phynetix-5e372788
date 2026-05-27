@@ -36,7 +36,7 @@ type EventRow = {
   id: string;
   session_id: string;
   event_type: string;
-  payload?: any;
+  metadata?: any;
   created_at: string;
 };
 
@@ -198,7 +198,7 @@ export default function LiveMonitoring() {
         .limit(100),
       supabase
         .from('monitoring_events')
-        .select('id, session_id, event_type, payload, created_at')
+        .select('id, session_id, event_type, metadata, created_at')
         .order('created_at', { ascending: false })
         .limit(500),
     ]);
