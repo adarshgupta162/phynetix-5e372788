@@ -353,7 +353,17 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
 
   useEffect(() => {
     if (!session?.id) return;
-    const interval = window.setInterval(() => logEvent('heartbeat', { payload: { devices } }), 20000);
+    const tick = async () => {
+      void logEvent('heartbeat', { payload: { devices } });
+      try {
+        await supabase
+          .from('monitoring_sessions')
+          .update({ last_heartbeat_at: new Date().toISOString() } as any)
+          .eq('id', session.id);
+      } catch { /* best effort */ }
+    };
+    const interval = window.setInterval(tick, 15000);
+    void tick();
     return () => window.clearInterval(interval);
   }, [devices, logEvent, session?.id]);
 
