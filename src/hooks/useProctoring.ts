@@ -315,18 +315,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     return () => window.clearInterval(interval);
   }, [devices, logEvent, session?.id]);
 
-  useEffect(() => {
-    if (!session?.id) return;
-    if (!settings?.screenshot_enabled) return;
-    const seconds = Math.max(10, settings.screenshot_interval_seconds ?? 120);
-    screenshotTimerRef.current = setInterval(() => {
-      captureScreenshot().catch((error) => console.warn('Screenshot capture failed', error));
-    }, seconds * 1000);
-    return () => {
-      if (screenshotTimerRef.current) window.clearInterval(screenshotTimerRef.current);
-      screenshotTimerRef.current = null;
-    };
-  }, [captureScreenshot, session?.id, settings?.screenshot_enabled, settings?.screenshot_interval_seconds]);
+  // Screenshot timer removed.
 
   useEffect(() => {
     if (!session?.id) return;
@@ -356,16 +345,9 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   }, [logEvent, session?.id]);
 
   useEffect(() => () => {
-    if (screenshotTimerRef.current) window.clearInterval(screenshotTimerRef.current);
-    screenshotTimerRef.current = null;
     connectionRef.current?.close();
     stopStream(cameraStreamRef.current);
     stopStream(screenStreamRef.current);
-    if (screenVideoRef.current) {
-      screenVideoRef.current.pause();
-      screenVideoRef.current.srcObject = null;
-      screenVideoRef.current = null;
-    }
   }, []);
 
   return { settings, session, devices, isPreparing, isStreaming, loadSettings, prepare, start, stop, logEvent };
