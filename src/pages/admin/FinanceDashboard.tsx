@@ -21,13 +21,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { motion } from "framer-motion";
 import { CouponManager } from "@/components/admin/CouponManager";
+import { RefundDialog } from "@/components/admin/RefundDialog";
 
 export default function FinanceDashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState("all");
+  const [refundTarget, setRefundTarget] = useState<any>(null);
 
   // Fetch payments
-  const { data: payments, isLoading: paymentsLoading } = useQuery({
+  const { data: payments, isLoading: paymentsLoading, refetch } = useQuery({
     queryKey: ['admin-payments'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -37,12 +39,28 @@ export default function FinanceDashboard() {
           batches (name)
         `)
         .order('created_at', { ascending: false })
-        .limit(100);
+        .limit(500);
       
       if (error) throw error;
       return data;
     },
   });
+
+  const exportCsv = () => {
+    if (!payments?.length) return;
+    const header = "Transaction ID,Batch,User ID,Amount,Currency,Status,Method,Refund Amount,Refunded At,Created At\n";
+    const rows = payments
+      .map(
+        (p: any) =>
+          `"${p.transaction_id || p.id}","${p.batches?.name || ""}","${p.user_id}","${p.amount}","${p.currency || "INR"}","${p.status || ""}","${p.payment_method || ""}","${p.refund_amount || ""}","${p.refunded_at || ""}","${p.created_at || ""}"`,
+      )
+      .join("\n");
+    const blob = new Blob([header + rows], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `transactions_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  };
 
   // Calculate stats
   const stats = {
@@ -90,11 +108,11 @@ export default function FinanceDashboard() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline">
+              <Button variant="outline" onClick={exportCsv} disabled={!payments?.length}>
                 <Download className="w-4 h-4 mr-2" />
-                Export
+                Export CSV
               </Button>
-              <Button variant="outline">
+              <Button variant="outline" onClick={() => refetch()}>
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Refresh
               </Button>
@@ -202,18 +220,21 @@ export default function FinanceDashboard() {
                         <TableHead>Status</TableHead>
                         <TableHead>Method</TableHead>
                         <TableHead>Date</TableHead>
+                        <TableHead></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredPayments?.map((payment) => (
                         <TableRow key={payment.id}>
-                          <TableCell className="font-mono text-sm">
+                          <TableCell className="font-mono text-xs">
                             {payment.transaction_id || payment.id.slice(0, 8)}
                           </TableCell>
                           <TableCell>{payment.batches?.name || 'N/A'}</TableCell>
-                          <TableCell className="flex items-center">
-                            <IndianRupee className="w-3 h-3" />
-                            {Number(payment.amount).toLocaleString('en-IN')}
+                          <TableCell>
+                            <div className="flex items-center"><IndianRupee className="w-3 h-3" />{Number(payment.amount).toLocaleString('en-IN')}</div>
+                            {payment.refund_amount ? (
+                              <div className="text-xs text-destructive flex items-center">refunded <IndianRupee className="w-2 h-2 ml-1" />{Number(payment.refund_amount).toLocaleString('en-IN')}</div>
+                            ) : null}
                           </TableCell>
                           <TableCell>{getStatusBadge(payment.status)}</TableCell>
                           <TableCell className="capitalize">
@@ -222,11 +243,18 @@ export default function FinanceDashboard() {
                           <TableCell>
                             {format(new Date(payment.created_at!), 'MMM d, yyyy')}
                           </TableCell>
+                          <TableCell>
+                            {payment.status === 'completed' && !payment.refund_amount && (
+                              <Button variant="ghost" size="sm" onClick={() => setRefundTarget(payment)}>
+                                <TrendingDown className="w-4 h-4 mr-1" /> Refund
+                              </Button>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                       {(!filteredPayments || filteredPayments.length === 0) && (
                         <TableRow>
-                          <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                             No transactions found
                           </TableCell>
                         </TableRow>
@@ -240,13 +268,37 @@ export default function FinanceDashboard() {
             <TabsContent value="refunds">
               <Card>
                 <CardHeader>
-                  <CardTitle>Refund Management</CardTitle>
-                  <CardDescription>Process and track refunds</CardDescription>
+                  <CardTitle>Refunds</CardTitle>
+                  <CardDescription>All processed refunds</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-muted-foreground text-center py-8">
-                    Refund management coming soon
-                  </p>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Txn</TableHead>
+                        <TableHead>Batch</TableHead>
+                        <TableHead>Original</TableHead>
+                        <TableHead>Refunded</TableHead>
+                        <TableHead>Reason</TableHead>
+                        <TableHead>Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {payments?.filter((p) => p.refund_amount).map((p) => (
+                        <TableRow key={p.id}>
+                          <TableCell className="font-mono text-xs">{p.transaction_id || p.id.slice(0, 8)}</TableCell>
+                          <TableCell>{p.batches?.name || "—"}</TableCell>
+                          <TableCell><div className="flex items-center"><IndianRupee className="w-3 h-3" />{Number(p.amount).toLocaleString("en-IN")}</div></TableCell>
+                          <TableCell className="text-destructive"><div className="flex items-center"><IndianRupee className="w-3 h-3" />{Number(p.refund_amount).toLocaleString("en-IN")}</div></TableCell>
+                          <TableCell className="max-w-xs truncate">{p.refund_reason || "—"}</TableCell>
+                          <TableCell>{p.refunded_at ? format(new Date(p.refunded_at), "MMM d, yyyy") : "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                      {!payments?.some((p) => p.refund_amount) && (
+                        <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No refunds yet.</TableCell></TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -257,6 +309,15 @@ export default function FinanceDashboard() {
               </Card>
             </TabsContent>
           </Tabs>
+
+          {refundTarget && (
+            <RefundDialog
+              open={!!refundTarget}
+              onOpenChange={(o) => !o && setRefundTarget(null)}
+              payment={refundTarget}
+              onDone={() => refetch()}
+            />
+          )}
         </motion.div>
       </div>
     </AdminLayout>
