@@ -294,7 +294,7 @@ export default function LiveMonitoring() {
         )}
 
         <div className="grid gap-3">
-          {sessions.map((s) => {
+          {filteredSessions.map((s) => {
             const sEvents = eventsBySession[s.id] || [];
             const stale = s.last_heartbeat_at && Date.now() - new Date(s.last_heartbeat_at).getTime() > 45000;
             return (
@@ -318,7 +318,7 @@ export default function LiveMonitoring() {
               </div>
             );
           })}
-          {!sessions.length && !loading && (
+          {!filteredSessions.length && !loading && (
             <div className="glass-card p-12 text-center">
               <Shield className="w-14 h-14 mx-auto mb-3 text-muted-foreground" />
               <h2 className="text-xl font-semibold">No active monitored sessions</h2>
