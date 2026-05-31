@@ -182,14 +182,18 @@ export default function LiveMonitoring() {
   const [selected, setSelected] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [testFilter, setTestFilter] = useState<string>('all');
 
   const load = useCallback(async () => {
     setLoading(true);
+    const cutoffIso = new Date(Date.now() - LIVE_HEARTBEAT_MS).toISOString();
     const [s, e] = await Promise.all([
       supabase
         .from('monitoring_sessions')
         .select('*')
         .eq('status', 'active')
+        .not('cf_session_id', 'is', null)
+        .gte('last_heartbeat_at', cutoffIso)
         .order('started_at', { ascending: false })
         .limit(100),
       supabase
