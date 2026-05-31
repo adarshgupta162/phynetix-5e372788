@@ -199,7 +199,10 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       }
     } catch (e) {
       console.error('LiveKit publish failed', e);
-      throw new Error('Live stream connection failed. Please allow camera and screen sharing permissions, then resume the test again.');
+      throw new Error(`Live stream connection failed: ${(e as Error)?.message || e}`);
+    }
+    if (liveStreamRequired && !publish) {
+      throw new Error('Live stream did not start. No camera/screen track was captured.');
     }
 
     // Fetch denormalized names for the admin grid

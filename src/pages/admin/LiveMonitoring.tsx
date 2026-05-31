@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import {
   Activity, AlertTriangle, Camera, Clock, Eye, Mic, MonitorUp,
@@ -11,8 +11,11 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { subscribeToRoom, type SubscribeHandle } from '@/lib/proctoring/livekit';
+
+const LIVE_HEARTBEAT_MS = 60_000;
 
 type Session = {
   id: string;
@@ -179,14 +182,18 @@ export default function LiveMonitoring() {
   const [selected, setSelected] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [testFilter, setTestFilter] = useState<string>('all');
 
   const load = useCallback(async () => {
     setLoading(true);
+    const cutoffIso = new Date(Date.now() - LIVE_HEARTBEAT_MS).toISOString();
     const [s, e] = await Promise.all([
       supabase
         .from('monitoring_sessions')
         .select('*')
         .eq('status', 'active')
+        .not('cf_session_id', 'is', null)
+        .gte('last_heartbeat_at', cutoffIso)
         .order('started_at', { ascending: false })
         .limit(100),
       supabase
@@ -226,11 +233,24 @@ export default function LiveMonitoring() {
     return acc;
   }, {});
 
+  const testOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    sessions.forEach((s) => {
+      if (s.test_id) map.set(s.test_id, s.test_name || s.test_id);
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [sessions]);
+
+  const filteredSessions = useMemo(
+    () => (testFilter === 'all' ? sessions : sessions.filter((s) => s.test_id === testFilter)),
+    [sessions, testFilter],
+  );
+
   const totals = {
-    sessions: sessions.length,
-    camera: sessions.filter((s) => devicesOf(s).camera).length,
-    screen: sessions.filter((s) => devicesOf(s).screen).length,
-    stale: sessions.filter((s) => s.last_heartbeat_at && Date.now() - new Date(s.last_heartbeat_at).getTime() > 45000).length,
+    sessions: filteredSessions.length,
+    camera: filteredSessions.filter((s) => devicesOf(s).camera).length,
+    screen: filteredSessions.filter((s) => devicesOf(s).screen).length,
+    stale: filteredSessions.filter((s) => s.last_heartbeat_at && Date.now() - new Date(s.last_heartbeat_at).getTime() > 45000).length,
   };
 
   return (
@@ -244,6 +264,19 @@ export default function LiveMonitoring() {
           <Button variant="outline" onClick={() => load()} disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </Button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Select value={testFilter} onValueChange={setTestFilter}>
+            <SelectTrigger className="w-72"><SelectValue placeholder="Filter by test" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All live tests ({sessions.length})</SelectItem>
+              {testOptions.map((t) => (
+                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-muted-foreground">Showing only sessions with a heartbeat in the last 60s.</span>
         </div>
 
         <div className="grid md:grid-cols-4 gap-4">
@@ -261,7 +294,7 @@ export default function LiveMonitoring() {
         )}
 
         <div className="grid gap-3">
-          {sessions.map((s) => {
+          {filteredSessions.map((s) => {
             const sEvents = eventsBySession[s.id] || [];
             const stale = s.last_heartbeat_at && Date.now() - new Date(s.last_heartbeat_at).getTime() > 45000;
             return (
@@ -285,7 +318,7 @@ export default function LiveMonitoring() {
               </div>
             );
           })}
-          {!sessions.length && !loading && (
+          {!filteredSessions.length && !loading && (
             <div className="glass-card p-12 text-center">
               <Shield className="w-14 h-14 mx-auto mb-3 text-muted-foreground" />
               <h2 className="text-xl font-semibold">No active monitored sessions</h2>
