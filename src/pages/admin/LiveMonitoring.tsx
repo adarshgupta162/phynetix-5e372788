@@ -266,6 +266,19 @@ export default function LiveMonitoring() {
           </Button>
         </div>
 
+        <div className="flex flex-wrap items-center gap-3">
+          <Select value={testFilter} onValueChange={setTestFilter}>
+            <SelectTrigger className="w-72"><SelectValue placeholder="Filter by test" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All live tests ({sessions.length})</SelectItem>
+              {testOptions.map((t) => (
+                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-xs text-muted-foreground">Showing only sessions with a heartbeat in the last 60s.</span>
+        </div>
+
         <div className="grid md:grid-cols-4 gap-4">
           <div className="glass-card p-4"><p className="text-sm text-muted-foreground">Active sessions</p><p className="text-2xl font-bold">{totals.sessions}</p></div>
           <div className="glass-card p-4"><p className="text-sm text-muted-foreground">Cameras on</p><p className="text-2xl font-bold">{totals.camera}</p></div>
