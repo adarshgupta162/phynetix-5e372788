@@ -339,7 +339,7 @@ export default function PDFTestInterface() {
 
       if (error) throw error;
 
-      await proctoring.stop('auto_submitted_time_expired');
+      /* proctoring disabled for PDF tests */;
       toast({ title: 'Test auto-submitted', description: 'Time expired' });
       navigate(`/test/${testId}/detailed-analysis?attemptId=${attemptId}`);
     } catch (err: any) {
@@ -383,8 +383,8 @@ export default function PDFTestInterface() {
   const resumeTest = async () => {
     if (!existingAttempt) return;
     try {
-      await proctoring.prepare({ silent: true });
-      await proctoring.start(existingAttempt.id, { interface: 'pdf', resumed: true });
+      // proctoring disabled for PDF tests
+      // proctoring disabled for PDF tests
     } catch (error: any) {
       toast({ title: 'Live monitoring required', description: error.message || 'Please allow required monitoring permissions.', variant: 'destructive' });
       return;
@@ -401,7 +401,7 @@ export default function PDFTestInterface() {
     if (!testId || !user) return;
 
     try {
-      await proctoring.prepare();
+      // proctoring disabled for PDF tests
       const { data, error } = await supabase.functions.invoke('start-test', {
         body: { test_id: testId }
       });
@@ -414,7 +414,7 @@ export default function PDFTestInterface() {
         const extraMinutes = Number(data.extra_time_minutes) || 0;
         setTimeLeft((testData.duration_minutes + extraMinutes) * 60);
       }
-      await proctoring.start(data.attempt_id, { interface: 'pdf', test_name: testData?.name });
+      // proctoring disabled for PDF tests
 
       await supabase
         .from('test_attempts')
@@ -518,7 +518,7 @@ export default function PDFTestInterface() {
           document.exitFullscreen();
         }
 
-        await proctoring.stop('submitted_awaiting_result');
+        /* proctoring disabled for PDF tests */;
         toast({ title: 'Test submitted!', description: 'Results will be available once answer key is uploaded.' });
         navigate('/tests');
         return;
@@ -539,7 +539,7 @@ export default function PDFTestInterface() {
         document.exitFullscreen();
       }
 
-      await proctoring.stop('submitted');
+      /* proctoring disabled for PDF tests */;
       toast({ title: 'Test submitted successfully!' });
       navigate(`/test/${testId}/detailed-analysis?attemptId=${attemptId}`);
     } catch (err: any) {
