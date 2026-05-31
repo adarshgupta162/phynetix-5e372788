@@ -233,11 +233,24 @@ export default function LiveMonitoring() {
     return acc;
   }, {});
 
+  const testOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    sessions.forEach((s) => {
+      if (s.test_id) map.set(s.test_id, s.test_name || s.test_id);
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [sessions]);
+
+  const filteredSessions = useMemo(
+    () => (testFilter === 'all' ? sessions : sessions.filter((s) => s.test_id === testFilter)),
+    [sessions, testFilter],
+  );
+
   const totals = {
-    sessions: sessions.length,
-    camera: sessions.filter((s) => devicesOf(s).camera).length,
-    screen: sessions.filter((s) => devicesOf(s).screen).length,
-    stale: sessions.filter((s) => s.last_heartbeat_at && Date.now() - new Date(s.last_heartbeat_at).getTime() > 45000).length,
+    sessions: filteredSessions.length,
+    camera: filteredSessions.filter((s) => devicesOf(s).camera).length,
+    screen: filteredSessions.filter((s) => devicesOf(s).screen).length,
+    stale: filteredSessions.filter((s) => s.last_heartbeat_at && Date.now() - new Date(s.last_heartbeat_at).getTime() > 45000).length,
   };
 
   return (
