@@ -258,11 +258,17 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       }
     } catch (e) {
       console.error('LiveKit publish failed', e);
-      await supabase.from('monitoring_sessions').update({ status: 'failed', failure_reason: (e as Error)?.message || String(e) } as any).eq('id', data.id);
+      await supabase.from('monitoring_sessions').update({
+        status: 'failed',
+        metadata: { ...basePayload.metadata, failure_reason: (e as Error)?.message || String(e) },
+      } as any).eq('id', data.id);
       throw new Error(`Live stream connection failed: ${(e as Error)?.message || e}`);
     }
     if (liveStreamRequired && !publish) {
-      await supabase.from('monitoring_sessions').update({ status: 'failed', failure_reason: 'No camera/screen track was captured.' } as any).eq('id', data.id);
+      await supabase.from('monitoring_sessions').update({
+        status: 'failed',
+        metadata: { ...basePayload.metadata, failure_reason: 'No camera/screen track was captured.' },
+      } as any).eq('id', data.id);
       throw new Error('Live stream did not start. No camera/screen track was captured.');
     }
 
