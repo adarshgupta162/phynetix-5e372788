@@ -183,26 +183,11 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const studentId = userId ?? (await supabase.auth.getUser()).data.user?.id ?? null;
     const deviceState = devicesRef.current;
 
-    // Try to publish to LiveKit first (so we can store room/identity on the row)
+    const roomName = `proc-${attemptId}`;
     let publish: PublishHandle | null = null;
     const liveStreamRequired = effective.require_camera || effective.require_microphone || effective.require_screen;
     if (liveStreamRequired && !cameraStreamRef.current && !screenStreamRef.current) {
       throw new Error('Live stream could not start. Please allow camera and screen sharing permissions, then resume the test again.');
-    }
-    try {
-      if (cameraStreamRef.current || screenStreamRef.current) {
-        publish = await publishStreams({
-          cameraStream: cameraStreamRef.current,
-          screenStream: screenStreamRef.current,
-          roomName: `proc-${attemptId}`,
-        });
-      }
-    } catch (e) {
-      console.error('LiveKit publish failed', e);
-      throw new Error(`Live stream connection failed: ${(e as Error)?.message || e}`);
-    }
-    if (liveStreamRequired && !publish) {
-      throw new Error('Live stream did not start. No camera/screen track was captured.');
     }
 
     // Fetch denormalized names for the admin grid
@@ -219,44 +204,87 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       }
     } catch { /* best effort */ }
 
-    const { data, error } = await supabase
-      .from('monitoring_sessions')
-      .insert({
-        attempt_id: String(attemptId),
-        student_id: studentId ? String(studentId) : null,
+    const basePayload = {
+      attempt_id: String(attemptId),
+      student_id: studentId ? String(studentId) : null,
+      test_id: testId ?? null,
+      student_name: studentName,
+      test_name: testName,
+      status: 'active',
+      cf_session_id: liveStreamRequired ? roomName : null,
+      last_heartbeat_at: new Date().toISOString(),
+      metadata: {
+        ...metadata,
+        devices: deviceState,
         test_id: testId ?? null,
-        student_name: studentName,
         test_name: testName,
-        status: 'active',
-        // Reuse cf_* columns to avoid a schema migration:
-        //   cf_session_id   = LiveKit room name
-        //   cf_camera_track = publisher identity (admin filters tracks by this)
-        //   cf_screen_track = "1" when screen share is active
-        cf_session_id: publish?.roomName ?? null,
-        cf_camera_track: publish?.identity ?? null,
-        cf_microphone_track: publish?.hasCamera ? '1' : null,
-        cf_screen_track: publish?.hasScreen ? '1' : null,
-        last_heartbeat_at: new Date().toISOString(),
-        metadata: {
-          ...metadata,
-          devices: deviceState,
-          test_id: testId ?? null,
-          test_name: testName,
-          student_name: studentName,
-          consent_accepted: true,
-          provider: 'livekit',
-          livekit_room: publish?.roomName ?? null,
-          livekit_identity: publish?.identity ?? null,
-        },
-      } as any)
-      .select('*')
-      .single();
+        student_name: studentName,
+        consent_accepted: true,
+        provider: 'livekit',
+        livekit_room: liveStreamRequired ? roomName : null,
+      },
+    } as any;
 
-    if (error || !data || !isMonitoringSessionRecord(data)) {
-      console.warn('Failed to start live monitoring session', error);
-      publish?.close();
-      setIsStreaming(false);
-      return null;
+    const { data: existingRows, error: existingError } = await supabase
+      .from('monitoring_sessions')
+      .select('*')
+      .eq('attempt_id', String(attemptId))
+      .eq('status', 'active')
+      .order('started_at', { ascending: false })
+      .limit(1);
+    if (existingError) throw new Error(`Live monitoring session lookup failed: ${existingError.message}`);
+
+    const existing = Array.isArray(existingRows) ? existingRows[0] : null;
+    const initialResult = existing
+      ? await supabase.from('monitoring_sessions').update(basePayload).eq('id', existing.id).select('*').single()
+      : await supabase.from('monitoring_sessions').insert(basePayload).select('*').single();
+
+    if (initialResult.error || !initialResult.data || !isMonitoringSessionRecord(initialResult.data)) {
+      throw new Error(`Live monitoring session could not be created: ${initialResult.error?.message || 'Unknown database error'}`);
+    }
+
+    let data = initialResult.data;
+    const initialSession = buildSessionModel(data, { devices: deviceState, studentId, testId });
+    setSession(initialSession);
+    sessionRef.current = initialSession;
+
+    try {
+      if (cameraStreamRef.current || screenStreamRef.current) {
+        publish = await publishStreams({
+          cameraStream: cameraStreamRef.current,
+          screenStream: screenStreamRef.current,
+          roomName,
+        });
+      }
+    } catch (e) {
+      console.error('LiveKit publish failed', e);
+      await supabase.from('monitoring_sessions').update({ status: 'failed', failure_reason: (e as Error)?.message || String(e) } as any).eq('id', data.id);
+      throw new Error(`Live stream connection failed: ${(e as Error)?.message || e}`);
+    }
+    if (liveStreamRequired && !publish) {
+      await supabase.from('monitoring_sessions').update({ status: 'failed', failure_reason: 'No camera/screen track was captured.' } as any).eq('id', data.id);
+      throw new Error('Live stream did not start. No camera/screen track was captured.');
+    }
+
+    if (publish) {
+      const { data: updated, error: updateError } = await supabase
+        .from('monitoring_sessions')
+        .update({
+          cf_session_id: publish.roomName,
+          cf_camera_track: publish.identity,
+          cf_microphone_track: publish.hasCamera ? '1' : null,
+          cf_screen_track: publish.hasScreen ? '1' : null,
+          last_heartbeat_at: new Date().toISOString(),
+          metadata: { ...basePayload.metadata, livekit_room: publish.roomName, livekit_identity: publish.identity },
+        } as any)
+        .eq('id', data.id)
+        .select('*')
+        .single();
+      if (updateError || !updated || !isMonitoringSessionRecord(updated)) {
+        publish.close();
+        throw new Error(`Live monitoring stream could not be linked: ${updateError?.message || 'Unknown database error'}`);
+      }
+      data = updated;
     }
 
     connectionRef.current = publish;
