@@ -160,7 +160,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       effective.require_screen && !nextDevices.screen ? 'screen' : null,
     ].filter(Boolean);
 
-    if (missingRequired.length) {
+    if (missingRequired.length && !effective.allow_optional_device_fallback) {
       stopStream(cameraStreamRef.current);
       stopStream(screenStreamRef.current);
       cameraStreamRef.current = null;
@@ -185,7 +185,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
 
     const roomName = `proc-${attemptId}`;
     let publish: PublishHandle | null = null;
-    const liveStreamRequired = effective.require_camera || effective.require_microphone || effective.require_screen;
+    const liveStreamRequired = effective.require_camera || effective.require_microphone || effective.require_screen || deviceState.camera || deviceState.microphone || deviceState.screen;
     if (liveStreamRequired && !cameraStreamRef.current && !screenStreamRef.current) {
       throw new Error('Live stream could not start. Please allow camera and screen sharing permissions, then resume the test again.');
     }
