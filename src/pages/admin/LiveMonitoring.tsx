@@ -423,8 +423,8 @@ export default function LiveMonitoring() {
                     <Clock className="w-3 h-3 ml-2" /> last heartbeat {s.last_heartbeat_at ? formatDistanceToNow(new Date(s.last_heartbeat_at), { addSuffix: true }) : 'never'}
                   </p>
                 </div>
-                <Button onClick={() => setSelected(s)} disabled={!s.cf_session_id}>
-                  <Eye className="w-4 h-4 mr-2" /> {s.cf_session_id ? 'Watch live' : 'No stream'}
+                <Button onClick={() => setSelected(s)}>
+                  <Eye className="w-4 h-4 mr-2" /> Open details
                 </Button>
               </div>
             );
@@ -444,7 +444,15 @@ export default function LiveMonitoring() {
           <DialogHeader>
             <DialogTitle>{selected?.student_name || 'Live viewer'} — {selected?.test_name || ''}</DialogTitle>
           </DialogHeader>
-          {selected && <LiveViewer session={selected} events={eventsBySession[selected.id] || []} />}
+          {selected && (
+            <LiveViewer
+              session={selected}
+              events={eventsBySession[selected.id] || []}
+              attempt={selected.attempt_id ? attempts[selected.attempt_id] : undefined}
+              test={selected.test_id ? tests[selected.test_id] : undefined}
+              questions={selected.test_id ? questions[selected.test_id] || [] : []}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </AdminLayout>
