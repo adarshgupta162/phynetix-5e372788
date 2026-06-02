@@ -116,18 +116,19 @@ function DeviceBadges({ s }: { s: Session }) {
   );
 }
 
-function LiveViewer({ session, events }: { session: Session; events: EventRow[] }) {
+function LiveViewer({ session, events, attempt, test, questions }: { session: Session; events: EventRow[]; attempt?: AttemptRow; test?: TestMeta; questions: QuestionSummary[] }) {
   const cameraRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLVideoElement>(null);
   const handleRef = useRef<SubscribeHandle | null>(null);
   const [status, setStatus] = useState<'connecting' | 'live' | 'error' | 'no-stream'>('connecting');
   const [errMsg, setErrMsg] = useState<string | null>(null);
+  const roomName = roomOf(session);
 
   useEffect(() => {
     let cancelled = false;
 
     async function connect() {
-      if (!session.cf_session_id) {
+      if (!roomName) {
         setStatus('no-stream');
         return;
       }
@@ -145,7 +146,7 @@ function LiveViewer({ session, events }: { session: Session; events: EventRow[] 
           }
         };
         const h = await subscribeToRoom({
-          roomName: session.cf_session_id,
+          roomName,
           publisherIdentity: session.cf_camera_track,
           onUpdate: refresh,
         });
@@ -166,10 +167,20 @@ function LiveViewer({ session, events }: { session: Session; events: EventRow[] 
       handleRef.current?.close();
       handleRef.current = null;
     };
-  }, [session.cf_session_id, session.cf_camera_track]);
+  }, [roomName, session.cf_camera_track]);
 
   const fullscreenExits = events.filter((e) => e.event_type === 'fullscreen_exit').length;
   const tabSwitches = events.filter((e) => e.event_type === 'tab_switch').length;
+  const lastQuestionEvent = events.find((e) => e.event_type === 'question_change');
+  const currentQuestionId = lastQuestionEvent?.metadata?.question_id as string | undefined;
+  const currentQuestion = questions.find((q) => q.id === currentQuestionId);
+  const answered = answerCountOf(attempt?.answers);
+  const visited = visitedCountOf(attempt?.time_per_question);
+  const durationSeconds = ((test?.duration_minutes ?? 0) + (attempt?.extra_time_minutes ?? 0)) * 60;
+  const elapsedSeconds = attempt?.completed_at
+    ? Math.max(0, Math.floor((new Date(attempt.completed_at).getTime() - new Date(attempt.started_at).getTime()) / 1000))
+    : Math.max(0, Math.floor((Date.now() - new Date(attempt?.started_at || session.started_at).getTime()) / 1000));
+  const timeLeft = durationSeconds ? Math.max(0, durationSeconds - elapsedSeconds) : null;
 
   return (
     <div className="grid lg:grid-cols-[2fr,1fr] gap-4">
@@ -178,15 +189,15 @@ function LiveViewer({ session, events }: { session: Session; events: EventRow[] 
           <div className="rounded-xl overflow-hidden border bg-black aspect-video relative">
             <video ref={screenRef} autoPlay playsInline muted className="w-full h-full object-contain" />
             <div className="absolute top-2 left-2"><Badge variant="secondary"><MonitorUp className="w-3 h-3 mr-1" />Screen</Badge></div>
-            {!session.cf_screen_track && (
-              <div className="absolute inset-0 flex items-center justify-center text-white/70 text-sm">No screen share</div>
+            {!devicesOf(session).screen && (
+              <div className="absolute inset-0 flex items-center justify-center text-primary-foreground/70 text-sm">No screen share</div>
             )}
           </div>
           <div className="rounded-xl overflow-hidden border bg-black aspect-video max-h-64 relative">
             <video ref={cameraRef} autoPlay playsInline className="w-full h-full object-cover" />
             <div className="absolute top-2 left-2"><Badge variant="secondary"><Camera className="w-3 h-3 mr-1" />Camera</Badge></div>
-            {!session.cf_camera_track && (
-              <div className="absolute inset-0 flex items-center justify-center text-white/70 text-sm">No camera</div>
+            {!devicesOf(session).camera && (
+              <div className="absolute inset-0 flex items-center justify-center text-primary-foreground/70 text-sm">No camera</div>
             )}
           </div>
         </div>
@@ -204,10 +215,22 @@ function LiveViewer({ session, events }: { session: Session; events: EventRow[] 
           <p className="text-sm text-muted-foreground">{session.test_name || session.test_id || ''}</p>
           <p className="text-xs text-muted-foreground">Started {formatDistanceToNow(new Date(session.started_at), { addSuffix: true })}</p>
           <p className="text-xs text-muted-foreground">Last heartbeat: {session.last_heartbeat_at ? formatDistanceToNow(new Date(session.last_heartbeat_at), { addSuffix: true }) : '—'}</p>
-          <div className="flex gap-3 pt-2 text-sm">
+          <p className="text-xs text-muted-foreground">Room: {roomName || '—'}</p>
+          <div className="grid grid-cols-2 gap-2 pt-2 text-sm">
+            <span className="flex items-center gap-1"><Timer className="w-3 h-3 text-primary" /> {timeLeft === null ? 'Time left —' : `${formatSeconds(timeLeft)} left`}</span>
+            <span>{answered} answered</span>
+            <span>{visited} visited</span>
+            <span>{Math.max(0, questions.length - visited)} not visited</span>
             <span className="flex items-center gap-1"><AlertTriangle className="w-3 h-3 text-amber-500" /> {tabSwitches} tab switches</span>
             <span className="flex items-center gap-1"><VideoOff className="w-3 h-3 text-amber-500" /> {fullscreenExits} fullscreen exits</span>
           </div>
+        </div>
+        <div className="rounded-xl border p-4 space-y-2">
+          <h3 className="font-semibold">Current activity</h3>
+          <p className="text-sm">{currentQuestion ? `Q${(currentQuestion.order ?? 0) + 1}: ${currentQuestion.question_text || 'Question'}` : 'No question movement yet'}</p>
+          <p className="text-xs text-muted-foreground">{currentQuestion?.subject || lastQuestionEvent?.metadata?.subject_name || 'Subject —'} · {currentQuestion?.chapter || 'Section —'}</p>
+          <p className="text-xs text-muted-foreground">Exited fullscreen: {attempt?.fullscreen_exit_count ?? fullscreenExits}</p>
+          <p className="text-xs text-muted-foreground">Submit disabled: {attempt?.submit_disabled ? 'Yes' : 'No'}</p>
         </div>
         <div className="rounded-xl border p-4">
           <h3 className="font-semibold mb-3">Recent events ({events.length})</h3>
