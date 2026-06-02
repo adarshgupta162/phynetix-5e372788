@@ -120,7 +120,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
   const cameraRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLVideoElement>(null);
   const handleRef = useRef<SubscribeHandle | null>(null);
-  const [status, setStatus] = useState<'connecting' | 'live' | 'error' | 'no-stream'>('connecting');
+  const [status, setStatus] = useState<'connecting' | 'waiting' | 'live' | 'error' | 'no-stream'>('connecting');
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const roomName = roomOf(session);
 
@@ -144,6 +144,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
             screenRef.current.srcObject = h.screenStream;
             screenRef.current.play().catch(() => {});
           }
+          setStatus(h.cameraStream.getTracks().length || h.screenStream.getTracks().length ? 'live' : 'waiting');
         };
         const h = await subscribeToRoom({
           roomName,
@@ -153,7 +154,6 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
         if (cancelled) { h.close(); return; }
         handleRef.current = h;
         refresh();
-        setStatus('live');
       } catch (e: any) {
         console.error('Failed to subscribe to LiveKit room', e);
         setErrMsg(e?.message || String(e));
@@ -203,7 +203,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={status === 'live' ? 'default' : status === 'error' ? 'destructive' : 'secondary'}>
-            {status === 'live' ? 'Live' : status === 'error' ? 'Stream error' : status === 'no-stream' ? 'No live stream' : 'Connecting…'}
+            {status === 'live' ? 'Live' : status === 'error' ? 'Stream error' : status === 'no-stream' ? 'No live stream' : status === 'waiting' ? 'Waiting for stream' : 'Connecting…'}
           </Badge>
           <DeviceBadges s={session} />
           {errMsg && <span className="text-xs text-destructive">{errMsg}</span>}
