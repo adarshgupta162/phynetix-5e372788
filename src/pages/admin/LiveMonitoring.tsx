@@ -259,10 +259,12 @@ export default function LiveMonitoring() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [testFilter, setTestFilter] = useState<string>('all');
+  const [attempts, setAttempts] = useState<Record<string, AttemptRow>>({});
+  const [tests, setTests] = useState<Record<string, TestMeta>>({});
+  const [questions, setQuestions] = useState<Record<string, QuestionSummary[]>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
-    const cutoffIso = new Date(Date.now() - LIVE_HEARTBEAT_MS).toISOString();
     const [s, e] = await Promise.all([
       supabase
         .from('monitoring_sessions')
@@ -289,12 +291,39 @@ export default function LiveMonitoring() {
       const hb = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : 0;
       const started = row.started_at ? new Date(row.started_at).getTime() : 0;
       const cutoff = Date.now() - LIVE_HEARTBEAT_MS;
-      return hb >= cutoff || started >= cutoff;
+      return hb >= cutoff || started >= Date.now() - LIVE_START_GRACE_MS;
     });
-    setSessions(fresh as Session[]);
+    const normalized = fresh.map(normalizeSession);
+    setSessions(normalized);
     setEvents((e.data || []) as EventRow[]);
     setError(null);
     setLoading(false);
+
+    const attemptIds = Array.from(new Set(normalized.map((row) => row.attempt_id).filter(Boolean))) as string[];
+    const testIds = Array.from(new Set(normalized.map((row) => row.test_id).filter(Boolean))) as string[];
+    const [attemptRows, testRows, regularQuestions, sectionQuestions] = await Promise.all([
+      attemptIds.length ? supabase.from('test_attempts').select('id, user_id, test_id, started_at, completed_at, answers, time_per_question, fullscreen_exit_count, extra_time_minutes, submit_disabled, time_taken_seconds').in('id', attemptIds) : Promise.resolve({ data: [], error: null } as any),
+      testIds.length ? supabase.from('tests').select('id, name, duration_minutes').in('id', testIds) : Promise.resolve({ data: [], error: null } as any),
+      testIds.length ? supabase.from('test_questions').select('test_id, order_index, question_id, questions(id, question_text, chapters(name, courses(name)))').in('test_id', testIds).order('order_index') : Promise.resolve({ data: [], error: null } as any),
+      testIds.length ? supabase.from('test_section_questions').select('id, test_id, question_number, question_text, order_index, section:test_sections(name, subject:test_subjects(name))').in('test_id', testIds).order('question_number') : Promise.resolve({ data: [], error: null } as any),
+    ]);
+
+    if (!attemptRows.error) setAttempts(Object.fromEntries(((attemptRows.data || []) as AttemptRow[]).map((row) => [row.id, row])));
+    if (!testRows.error) setTests(Object.fromEntries(((testRows.data || []) as TestMeta[]).map((row) => [row.id, row])));
+    if (!regularQuestions.error || !sectionQuestions.error) {
+      const grouped: Record<string, QuestionSummary[]> = {};
+      (regularQuestions.data || []).forEach((row: any) => {
+        const q = row.questions;
+        if (!q?.id || !row.test_id) return;
+        (grouped[row.test_id] ||= []).push({ id: q.id, order: row.order_index ?? (grouped[row.test_id]?.length || 0), question_text: q.question_text, subject: q.chapters?.courses?.name, chapter: q.chapters?.name });
+      });
+      (sectionQuestions.data || []).forEach((row: any) => {
+        if (!row.id || !row.test_id) return;
+        (grouped[row.test_id] ||= []).push({ id: row.id, order: row.order_index ?? row.question_number ?? (grouped[row.test_id]?.length || 0), question_text: row.question_text, subject: row.section?.subject?.name, chapter: row.section?.name });
+      });
+      Object.keys(grouped).forEach((testId) => grouped[testId].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+      setQuestions(grouped);
+    }
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
