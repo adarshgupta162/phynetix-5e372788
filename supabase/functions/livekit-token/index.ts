@@ -3,9 +3,9 @@ import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { AccessToken } from "npm:livekit-server-sdk@2.9.4";
 
-const LIVEKIT_URL = Deno.env.get("LIVEKIT_URL")!;
-const LIVEKIT_API_KEY = Deno.env.get("LIVEKIT_API_KEY")!;
-const LIVEKIT_API_SECRET = Deno.env.get("LIVEKIT_API_SECRET")!;
+const LIVEKIT_URL = Deno.env.get("LIVEKIT_URL")?.trim() ?? "";
+const LIVEKIT_API_KEY = Deno.env.get("LIVEKIT_API_KEY")?.trim() ?? "";
+const LIVEKIT_API_SECRET = Deno.env.get("LIVEKIT_API_SECRET")?.trim() ?? "";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
