@@ -285,22 +285,9 @@ export default function LiveMonitoring() {
       setLoading(false);
       return;
     }
-    // Keep sessions whose heartbeat is fresh, OR which were started recently
-    // (covers brand-new sessions where the first heartbeat hasn't landed yet).
-    const fresh = (s.data || []).filter((row: any) => {
-      const hb = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : 0;
-      const started = row.started_at ? new Date(row.started_at).getTime() : 0;
-      const cutoff = Date.now() - LIVE_HEARTBEAT_MS;
-      return hb >= cutoff || started >= Date.now() - LIVE_START_GRACE_MS;
-    });
-    const normalized = fresh.map(normalizeSession);
-    setSessions(normalized);
-    setEvents((e.data || []) as EventRow[]);
-    setError(null);
-    setLoading(false);
-
-    const attemptIds = Array.from(new Set(normalized.map((row) => row.attempt_id).filter(Boolean))) as string[];
-    const testIds = Array.from(new Set(normalized.map((row) => row.test_id).filter(Boolean))) as string[];
+    const allSessions = (s.data || []).map(normalizeSession);
+    const attemptIds = Array.from(new Set(allSessions.map((row) => row.attempt_id).filter(Boolean))) as string[];
+    const testIds = Array.from(new Set(allSessions.map((row) => row.test_id).filter(Boolean))) as string[];
     const [attemptRows, testRows, regularQuestions, sectionQuestions] = await Promise.all([
       attemptIds.length ? supabase.from('test_attempts').select('id, user_id, test_id, started_at, completed_at, answers, time_per_question, fullscreen_exit_count, extra_time_minutes, submit_disabled, time_taken_seconds').in('id', attemptIds) : Promise.resolve({ data: [], error: null } as any),
       testIds.length ? supabase.from('tests').select('id, name, duration_minutes').in('id', testIds) : Promise.resolve({ data: [], error: null } as any),
@@ -308,8 +295,10 @@ export default function LiveMonitoring() {
       testIds.length ? supabase.from('test_section_questions').select('id, test_id, question_number, question_text, order_index, section:test_sections(name, subject:test_subjects(name))').in('test_id', testIds).order('question_number') : Promise.resolve({ data: [], error: null } as any),
     ]);
 
-    if (!attemptRows.error) setAttempts(Object.fromEntries(((attemptRows.data || []) as AttemptRow[]).map((row) => [row.id, row])));
-    if (!testRows.error) setTests(Object.fromEntries(((testRows.data || []) as TestMeta[]).map((row) => [row.id, row])));
+    const attemptMap = !attemptRows.error ? Object.fromEntries(((attemptRows.data || []) as AttemptRow[]).map((row) => [row.id, row])) as Record<string, AttemptRow> : {};
+    const testMap = !testRows.error ? Object.fromEntries(((testRows.data || []) as TestMeta[]).map((row) => [row.id, row])) as Record<string, TestMeta> : {};
+    setAttempts(attemptMap);
+    setTests(testMap);
     if (!regularQuestions.error || !sectionQuestions.error) {
       const grouped: Record<string, QuestionSummary[]> = {};
       (regularQuestions.data || []).forEach((row: any) => {
@@ -324,6 +313,20 @@ export default function LiveMonitoring() {
       Object.keys(grouped).forEach((testId) => grouped[testId].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
       setQuestions(grouped);
     }
+    const liveSessions = allSessions.filter((row) => {
+      const hb = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : 0;
+      const started = row.started_at ? new Date(row.started_at).getTime() : 0;
+      const attempt = row.attempt_id ? attemptMap[row.attempt_id] : undefined;
+      const test = row.test_id ? testMap[row.test_id] : undefined;
+      const durationMs = ((test?.duration_minutes ?? 0) + (attempt?.extra_time_minutes ?? 0)) * 60_000;
+      const attemptStarted = attempt?.started_at ? new Date(attempt.started_at).getTime() : started;
+      const attemptRunning = !!attempt && !attempt.completed_at && (!durationMs || Date.now() - attemptStarted <= durationMs + LIVE_START_GRACE_MS);
+      return hb >= Date.now() - LIVE_HEARTBEAT_MS || started >= Date.now() - LIVE_START_GRACE_MS || attemptRunning;
+    });
+    setSessions(liveSessions);
+    setEvents((e.data || []) as EventRow[]);
+    setError(null);
+    setLoading(false);
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
