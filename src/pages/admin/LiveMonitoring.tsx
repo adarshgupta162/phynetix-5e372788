@@ -192,10 +192,8 @@ export default function LiveMonitoring() {
         .from('monitoring_sessions')
         .select('*')
         .eq('status', 'active')
-        .not('cf_session_id', 'is', null)
-        .gte('last_heartbeat_at', cutoffIso)
         .order('started_at', { ascending: false })
-        .limit(100),
+        .limit(200),
       supabase
         .from('monitoring_events')
         .select('id, session_id, event_type, metadata, created_at')
@@ -209,7 +207,15 @@ export default function LiveMonitoring() {
       setLoading(false);
       return;
     }
-    setSessions((s.data || []) as Session[]);
+    // Keep sessions whose heartbeat is fresh, OR which were started recently
+    // (covers brand-new sessions where the first heartbeat hasn't landed yet).
+    const fresh = (s.data || []).filter((row: any) => {
+      const hb = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : 0;
+      const started = row.started_at ? new Date(row.started_at).getTime() : 0;
+      const cutoff = Date.now() - LIVE_HEARTBEAT_MS;
+      return hb >= cutoff || started >= cutoff;
+    });
+    setSessions(fresh as Session[]);
     setEvents((e.data || []) as EventRow[]);
     setError(null);
     setLoading(false);
