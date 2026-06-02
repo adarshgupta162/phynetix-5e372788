@@ -181,6 +181,9 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
     ? Math.max(0, Math.floor((new Date(attempt.completed_at).getTime() - new Date(attempt.started_at).getTime()) / 1000))
     : Math.max(0, Math.floor((Date.now() - new Date(attempt?.started_at || session.started_at).getTime()) / 1000));
   const timeLeft = durationSeconds ? Math.max(0, durationSeconds - elapsedSeconds) : null;
+  const streamErrorMessage = errMsg?.toLowerCase().includes('invalid token')
+    ? 'LiveKit rejected the token. Recheck that LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET belong to the same LiveKit project.'
+    : errMsg;
 
   return (
     <div className="grid lg:grid-cols-[2fr,1fr] gap-4">
@@ -206,7 +209,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
             {status === 'live' ? 'Live' : status === 'error' ? 'Stream error' : status === 'no-stream' ? 'No live stream' : status === 'waiting' ? 'Waiting for stream' : 'Connecting…'}
           </Badge>
           <DeviceBadges s={session} />
-          {errMsg && <span className="text-xs text-destructive">{errMsg}</span>}
+          {streamErrorMessage && <span className="text-xs text-destructive">{streamErrorMessage}</span>}
         </div>
       </div>
       <div className="space-y-4">
@@ -218,8 +221,10 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
           <p className="text-xs text-muted-foreground">Room: {roomName || '—'}</p>
           <div className="grid grid-cols-2 gap-2 pt-2 text-sm">
             <span className="flex items-center gap-1"><Timer className="w-3 h-3 text-primary" /> {timeLeft === null ? 'Time left —' : `${formatSeconds(timeLeft)} left`}</span>
+            <span>{formatSeconds(elapsedSeconds)} elapsed</span>
             <span>{answered} answered</span>
             <span>{visited} visited</span>
+            <span>{questions.length} total questions</span>
             <span>{Math.max(0, questions.length - visited)} not visited</span>
             <span className="flex items-center gap-1"><AlertTriangle className="w-3 h-3 text-amber-500" /> {tabSwitches} tab switches</span>
             <span className="flex items-center gap-1"><VideoOff className="w-3 h-3 text-amber-500" /> {fullscreenExits} fullscreen exits</span>
@@ -390,7 +395,7 @@ export default function LiveMonitoring() {
               ))}
             </SelectContent>
           </Select>
-          <span className="text-xs text-muted-foreground">Showing only sessions with a heartbeat in the last 60s.</span>
+          <span className="text-xs text-muted-foreground">Showing active monitored attempts with fresh heartbeat or remaining test time.</span>
         </div>
 
         <div className="grid md:grid-cols-4 gap-4">
