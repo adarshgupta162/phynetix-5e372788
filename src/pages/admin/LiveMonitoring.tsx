@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import {
   Activity, AlertTriangle, Camera, Clock, Eye, Mic, MonitorUp,
-  RefreshCw, Shield, Video, VideoOff,
+  RefreshCw, Shield, Timer, Video, VideoOff,
 } from 'lucide-react';
 import AdminLayout from '@/components/layout/AdminLayout';
 import { supabase } from '@/integrations/supabase/client';
@@ -16,6 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { subscribeToRoom, type SubscribeHandle } from '@/lib/proctoring/livekit';
 
 const LIVE_HEARTBEAT_MS = 60_000;
+const LIVE_START_GRACE_MS = 120_000;
 
 type Session = {
   id: string;
@@ -41,6 +42,58 @@ type EventRow = {
   event_type: string;
   metadata?: any;
   created_at: string;
+};
+
+type AttemptRow = {
+  id: string;
+  user_id: string | null;
+  test_id: string | null;
+  started_at: string;
+  completed_at: string | null;
+  answers?: Record<string, unknown> | null;
+  time_per_question?: Record<string, unknown> | null;
+  fullscreen_exit_count?: number | null;
+  extra_time_minutes?: number | null;
+  submit_disabled?: boolean | null;
+  time_taken_seconds?: number | null;
+};
+
+type TestMeta = { id: string; name: string | null; duration_minutes: number | null };
+type QuestionSummary = { id: string; order?: number; question_text?: string | null; subject?: string | null; chapter?: string | null };
+
+const sessionMeta = (s: Session) => s.metadata && typeof s.metadata === 'object' ? s.metadata : {};
+const roomOf = (s: Session) => s.cf_session_id || sessionMeta(s).livekit_room || (s.attempt_id ? `proc-${s.attempt_id}` : null);
+const normalizeSession = (row: any): Session => {
+  const meta = row?.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+  return {
+    ...row,
+    student_id: row.student_id ?? meta.student_id ?? null,
+    test_id: row.test_id ?? meta.test_id ?? null,
+    student_name: row.student_name ?? meta.student_name ?? null,
+    test_name: row.test_name ?? meta.test_name ?? null,
+    cf_session_id: row.cf_session_id ?? meta.livekit_room ?? (row.attempt_id ? `proc-${row.attempt_id}` : null),
+    cf_camera_track: row.cf_camera_track ?? meta.livekit_identity ?? null,
+    cf_microphone_track: row.cf_microphone_track ?? null,
+    cf_screen_track: row.cf_screen_track ?? null,
+  } as Session;
+};
+
+const formatSeconds = (seconds: number) => {
+  const safe = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+};
+
+const answerCountOf = (answers?: Record<string, unknown> | null) => Object.values(answers || {}).filter((value) => {
+  if (Array.isArray(value)) return value.length > 0;
+  return value !== null && value !== undefined && value !== '';
+}).length;
+
+const visitedCountOf = (timeMap?: Record<string, unknown> | null) => {
+  const visited = timeMap?.__visited_questions__;
+  return Array.isArray(visited) ? visited.length : 0;
 };
 
 const devicesOf = (s: Session) => {
