@@ -1,76 +1,30 @@
-# Plan: Multi-Feature Rollout
+Plan to replace the failing LiveKit stream path with Supabase Realtime WebRTC signaling:
 
-This is a large request covering 8 distinct areas. I'll group them into phases so each piece can be tested before moving on. Confirm the order or tell me which to prioritize first.
+1. Add a new WebRTC signaling helper
+   - Create a Supabase Realtime channel per monitoring session, e.g. `monitoring-webrtc:{sessionId}`.
+   - Student side listens for `viewer-request` from admin.
+   - Student creates an `RTCPeerConnection`, attaches camera/screen/mic tracks, sends an SDP offer through Realtime broadcast.
+   - Admin receives offer, creates answer, exchanges ICE candidates, and renders camera/screen tracks.
+   - Keep a small peer map so the student can handle refresh/reconnect and more than one admin viewer.
 
----
+2. Update student proctoring startup
+   - Remove LiveKit publishing from `useProctoring.ts`.
+   - Start the Supabase WebRTC broadcaster after the monitoring session row is created.
+   - Store `provider: 'supabase-webrtc'` and device availability in `monitoring_sessions.metadata`.
+   - Keep heartbeats and security event logging unchanged.
+   - If WebRTC setup fails, keep the monitoring session visible and show a clear stream status instead of hiding the candidate.
 
-### 1.1 Enrolled-students counter shows 0
+3. Update Admin → Live Monitoring viewer
+   - Replace LiveKit subscriber code with the new Supabase Realtime viewer.
+   - When admin clicks a candidate, send `viewer-request` and wait for the student browser to respond.
+   - Show live camera/screen when connected.
+   - Keep candidate details visible regardless of stream state: exited time/fullscreen exits, time left, elapsed time, current question, attempted/visited/not visited counts, events, heartbeat, and device status.
 
-- `batches.current_students` is never incremented. Add a Postgres trigger on `batch_enrollments` (AFTER INSERT/UPDATE/DELETE) that recomputes `current_students = count(active enrollments)` for the batch.
-- Backfill existing counts with one UPDATE.
+4. Remove LiveKit-specific UI/error messaging
+   - Replace “invalid token / LiveKit” errors with Realtime/WebRTC statuses: connecting, waiting for student browser, live, disconnected, or browser/network blocked.
+   - Stop depending on `livekit-token` for the normal monitoring path.
 
-### 1.2 Admin password reset of other users not working
-
-- Inspect `admin-reset-password` edge function logs, fix auth/service-role usage so an admin can set any user's password via `supabase.auth.admin.updateUserById`.
-
-### 1.3 Solution page — image not visible + black bg + negative filter
-
-- In `SolutionSection.tsx`: ensure both `solution_image_url` (legacy) + `solution_image_urls` merged via `mergeImageUrls`.
-- Wrap each image in a `bg-black` container with a toggleable `invert` filter (button: "Invert colors"). Default ON per your note.
-
-### 1.4 Bulk import — question option images
-
-- Extend `BulkQuestionImport.tsx` schema: accept `option_a_image`, `option_b_image`, `option_c_image`, `option_d_image` columns (URLs). Map into `options` JSONB as `{text, image_url}`.
-- Update sample CSV/XLSX template.
-
-- Verify `LIVEKIT_URL/API_KEY/API_SECRET` secrets resolve (already present).
-- In `useProctoring.ts`: on resume, ensure `publishStreams` is invoked AFTER permissions resolved and tracks attached; log + toast LiveKit connection failures.
-- In `LiveMonitoring.tsx`: subscribe per active `proctoring_sessions` row, render camera + screen tiles. Auto-refresh when new session row appears (realtime on `proctoring_sessions`).
-- Add a "no stream yet" placeholder vs actual error state so admins can tell the difference.
-
-Pick ONE path — please confirm:
-
-- **A) Lovable Payments (Stripe seamless)** — no key needed, 2.9%+30¢; I'll run `recommend_payment_provider` then `enable_stripe_payments`. Recommended.
-- Edge fn `create-checkout` → creates order, returns session/order_id.
-- Edge fn `payment-webhook` → on success, insert `payments` row + `batch_enrollments` row (enrollment_type=`paid`).
-- Replace demo button in `CheckoutPage.tsx` with real flow.
-- Apply coupon validation pre-checkout (validate against `coupons` table, write `coupon_usage`).
-
----
-
-Build `/admin/finance` enhancements:
-
-- **Transactions table**: list `payments` with filters (status, date, batch, user), CSV export.
-- **Refunds**: refund button per payment → edge fn `refund-payment` (provider refund + update `payments.refund_*` + deactivate enrollment if full refund).
-- **Coupons**: full CRUD already partly in `CouponManager.tsx` — add usage stats (uses, revenue impact).
-- **Revenue dashboard**: cards for total revenue, refunds, net, by batch.
-
----
-
-In `BatchManagement.tsx` / new `BatchDetailAdmin.tsx`:
-
-- Per-batch drawer/page: enrolled students table (name, email, enrolled_at, payment status, expires_at), search, manual add/remove, export CSV.
-- **Instruction customization**: add `instructions` (rich text) + `welcome_message` columns to `batches`; show to students on batch home.
-- Quick actions: extend expiry, deactivate enrollment, resend access email.
-
----
-
-## Database changes (summary)
-
-```sql
--- Phase 1.1
-CREATE FUNCTION recompute_batch_students() ...; -- trigger fn
-CREATE TRIGGER on batch_enrollments;
-
--- Phase 5
-ALTER TABLE batches ADD COLUMN instructions TEXT, ADD COLUMN welcome_message TEXT;
-
--- Phase 3/4
--- payments table already exists; may add: provider_subscription_id, invoice_url
-```
-
----
-
-
-
-Do all in one command use stripe and refund manual 
+Technical notes
+- This avoids LiveKit secrets completely.
+- It uses the existing logged-in student/admin browser sessions and existing `monitoring_sessions` discovery table.
+- Since this is peer-to-peer WebRTC without TURN, it should work on most normal networks, but can still fail on strict corporate/firewall networks. The candidate details and live session visibility will still work even if video negotiation fails.
