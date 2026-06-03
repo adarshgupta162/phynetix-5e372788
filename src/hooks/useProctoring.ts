@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { loadEffectiveProctoringSettings } from '@/lib/proctoring/settings';
-import { publishStreams, type PublishHandle } from '@/lib/proctoring/livekit';
+import { startPublisher, type PublisherHandle } from '@/lib/proctoring/webrtc-signaling';
 import type {
   MonitoringSessionRecord,
   ProctoringDeviceState,
