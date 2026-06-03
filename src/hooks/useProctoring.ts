@@ -51,7 +51,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const [isStreaming, setIsStreaming] = useState(false);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
-  const connectionRef = useRef<PublishHandle | null>(null);
+  const connectionRef = useRef<PublisherHandle | null>(null);
   const sessionRef = useRef<ProctoringSession | null>(null);
   const devicesRef = useRef<ProctoringDeviceState>({ camera: false, microphone: false, screen: false });
 
@@ -184,7 +184,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const deviceState = devicesRef.current;
 
     const roomName = `proc-${attemptId}`;
-    let publish: PublishHandle | null = null;
+    let publish: PublisherHandle | null = null;
     const liveStreamRequired = effective.require_camera || effective.require_microphone || effective.require_screen || deviceState.camera || deviceState.microphone || deviceState.screen;
     if (liveStreamRequired && !cameraStreamRef.current && !screenStreamRef.current) {
       throw new Error('Live stream could not start. Please allow camera and screen sharing permissions, then resume the test again.');
@@ -220,8 +220,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         test_name: testName,
         student_name: studentName,
         consent_accepted: true,
-        provider: 'livekit',
-        livekit_room: liveStreamRequired ? roomName : null,
+        provider: 'supabase-webrtc',
       },
     } as any;
 
@@ -248,50 +247,38 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     setSession(initialSession);
     sessionRef.current = initialSession;
 
+    // Start Supabase Realtime WebRTC publisher (peer-per-viewer). Non-fatal if it fails.
     try {
       if (cameraStreamRef.current || screenStreamRef.current) {
-        publish = await publishStreams({
+        publish = startPublisher({
+          sessionId: data.id,
           cameraStream: cameraStreamRef.current,
           screenStream: screenStreamRef.current,
-          roomName,
         });
       }
     } catch (e) {
-      console.error('LiveKit publish failed', e);
-      await supabase.from('monitoring_sessions').update({
-        status: 'failed',
-        metadata: { ...basePayload.metadata, failure_reason: (e as Error)?.message || String(e) },
-      } as any).eq('id', data.id);
-      throw new Error(`Live stream connection failed: ${(e as Error)?.message || e}`);
-    }
-    if (liveStreamRequired && !publish) {
-      await supabase.from('monitoring_sessions').update({
-        status: 'failed',
-        metadata: { ...basePayload.metadata, failure_reason: 'No camera/screen track was captured.' },
-      } as any).eq('id', data.id);
-      throw new Error('Live stream did not start. No camera/screen track was captured.');
+      console.error('WebRTC publisher start failed', e);
+      await logEvent('stream_failed', { payload: { reason: (e as Error)?.message || String(e) } });
     }
 
     if (publish) {
       const { data: updated, error: updateError } = await supabase
         .from('monitoring_sessions')
         .update({
-          cf_session_id: publish.roomName,
-          cf_camera_track: publish.identity,
-          cf_microphone_track: publish.hasCamera ? '1' : null,
-          cf_screen_track: publish.hasScreen ? '1' : null,
+          cf_session_id: data.id,
+          cf_camera_track: deviceState.camera ? '1' : null,
+          cf_microphone_track: deviceState.microphone ? '1' : null,
+          cf_screen_track: deviceState.screen ? '1' : null,
           last_heartbeat_at: new Date().toISOString(),
-          metadata: { ...basePayload.metadata, livekit_room: publish.roomName, livekit_identity: publish.identity },
         } as any)
         .eq('id', data.id)
         .select('*')
         .single();
-      if (updateError || !updated || !isMonitoringSessionRecord(updated)) {
-        publish.close();
-        throw new Error(`Live monitoring stream could not be linked: ${updateError?.message || 'Unknown database error'}`);
+      if (!updateError && updated && isMonitoringSessionRecord(updated)) {
+        data = updated;
       }
-      data = updated;
     }
+
 
     connectionRef.current = publish;
     const nextSession = buildSessionModel(data, { devices: deviceState, studentId, testId });
