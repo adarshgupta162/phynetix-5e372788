@@ -284,10 +284,10 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const nextSession = buildSessionModel(data, { devices: deviceState, studentId, testId });
     setSession(nextSession);
     sessionRef.current = nextSession;
-    await logEvent('session_started', { payload: { devices: deviceState, livekit_room: publish?.roomName } });
+    await logEvent('session_started', { payload: { devices: deviceState, session_id: data.id } });
     if (deviceState.camera) await logEvent('camera_started');
     if (deviceState.screen) await logEvent('screen_share_started');
-    if (publish) await logEvent('provider_connected', { payload: { provider: 'livekit' } });
+    if (publish) await logEvent('provider_connected', { payload: { provider: 'supabase-webrtc' } });
 
     setIsStreaming(true);
     return { ...nextSession, session: nextSession };
