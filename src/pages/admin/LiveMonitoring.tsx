@@ -13,7 +13,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { subscribeToRoom, type SubscribeHandle } from '@/lib/proctoring/livekit';
+import { startSubscriber, type SubscriberHandle } from '@/lib/proctoring/webrtc-signaling';
 
 const LIVE_HEARTBEAT_MS = 60_000;
 const LIVE_START_GRACE_MS = 120_000;
@@ -119,55 +119,61 @@ function DeviceBadges({ s }: { s: Session }) {
 function LiveViewer({ session, events, attempt, test, questions }: { session: Session; events: EventRow[]; attempt?: AttemptRow; test?: TestMeta; questions: QuestionSummary[] }) {
   const cameraRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLVideoElement>(null);
-  const handleRef = useRef<SubscribeHandle | null>(null);
+  const handleRef = useRef<SubscriberHandle | null>(null);
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'live' | 'error' | 'no-stream'>('connecting');
   const [errMsg, setErrMsg] = useState<string | null>(null);
-  const roomName = roomOf(session);
 
   useEffect(() => {
     let cancelled = false;
+    if (!session.id) { setStatus('no-stream'); return; }
 
-    async function connect() {
-      if (!roomName) {
-        setStatus('no-stream');
-        return;
+    const cameraStream = new MediaStream();
+    const screenStream = new MediaStream();
+
+    const refresh = () => {
+      if (cameraRef.current && cameraRef.current.srcObject !== cameraStream) {
+        cameraRef.current.srcObject = cameraStream;
+        cameraRef.current.play().catch(() => {});
       }
-      try {
-        const refresh = () => {
-          const h = handleRef.current;
-          if (!h) return;
-          if (cameraRef.current && cameraRef.current.srcObject !== h.cameraStream) {
-            cameraRef.current.srcObject = h.cameraStream;
-            cameraRef.current.play().catch(() => {});
-          }
-          if (screenRef.current && screenRef.current.srcObject !== h.screenStream) {
-            screenRef.current.srcObject = h.screenStream;
-            screenRef.current.play().catch(() => {});
-          }
-          setStatus(h.cameraStream.getTracks().length || h.screenStream.getTracks().length ? 'live' : 'waiting');
-        };
-        const h = await subscribeToRoom({
-          roomName,
-          publisherIdentity: session.cf_camera_track,
-          onUpdate: refresh,
-        });
-        if (cancelled) { h.close(); return; }
-        handleRef.current = h;
-        refresh();
-      } catch (e: any) {
-        console.error('Failed to subscribe to LiveKit room', e);
-        setErrMsg(e?.message || String(e));
-        setStatus('error');
+      if (screenRef.current && screenRef.current.srcObject !== screenStream) {
+        screenRef.current.srcObject = screenStream;
+        screenRef.current.play().catch(() => {});
       }
+    };
+
+    try {
+      const h = startSubscriber({
+        sessionId: session.id,
+        onStatus: (s, err) => {
+          if (cancelled) return;
+          setStatus(s);
+          if (err) setErrMsg(err);
+        },
+        onTrack: (track, _stream) => {
+          if (cancelled) return;
+          // Heuristic: a remote stream from the publisher carries the original MediaStream id;
+          // route video tracks: if there are 2 video tracks, the first one tends to be camera, second screen.
+          // Simpler: distinguish by track.label patterns from getDisplayMedia/getUserMedia.
+          const label = (track.label || '').toLowerCase();
+          const looksLikeScreen = label.includes('screen') || label.includes('display') || label.includes('window') || label.includes('tab');
+          const target = track.kind === 'audio' ? cameraStream : looksLikeScreen ? screenStream : cameraStream;
+          if (!target.getTracks().includes(track)) target.addTrack(track);
+          refresh();
+        },
+      });
+      handleRef.current = h;
+    } catch (e: any) {
+      console.error('Failed to start subscriber', e);
+      setErrMsg(e?.message || String(e));
+      setStatus('error');
     }
-    connect();
 
     return () => {
       cancelled = true;
       handleRef.current?.close();
       handleRef.current = null;
     };
-  }, [roomName, session.cf_camera_track]);
+  }, [session.id]);
 
   const fullscreenExits = events.filter((e) => e.event_type === 'fullscreen_exit').length;
   const tabSwitches = events.filter((e) => e.event_type === 'tab_switch').length;
@@ -181,9 +187,8 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
     ? Math.max(0, Math.floor((new Date(attempt.completed_at).getTime() - new Date(attempt.started_at).getTime()) / 1000))
     : Math.max(0, Math.floor((Date.now() - new Date(attempt?.started_at || session.started_at).getTime()) / 1000));
   const timeLeft = durationSeconds ? Math.max(0, durationSeconds - elapsedSeconds) : null;
-  const streamErrorMessage = errMsg?.toLowerCase().includes('invalid token')
-    ? 'LiveKit rejected the token. Recheck that LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET belong to the same LiveKit project.'
-    : errMsg;
+  const streamErrorMessage = errMsg;
+  const roomName = session.id;
 
   return (
     <div className="grid lg:grid-cols-[2fr,1fr] gap-4">
