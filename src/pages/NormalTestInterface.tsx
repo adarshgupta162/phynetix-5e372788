@@ -234,16 +234,15 @@ export default function NormalTestInterface() {
           .eq("test_id", testId).eq("user_id", user.id).maybeSingle();
         if (ea) {
           if (ea.completed_at) { navigate(`/test/${testId}/analysis`); return; }
-          try {
-            await proctoring.prepare({ silent: true });
-          } catch (error: any) {
-            toast({ title: "Live monitoring required", description: error.message || "Please allow required monitoring permissions.", variant: "destructive" });
-            setLoading(false);
-            return;
-          }
-          setHasExistingAttempt(true); setCurrentScreen(4);
+          // Don't auto-call prepare() here: getDisplayMedia requires a user gesture,
+          // otherwise the browser blocks the screen-share prompt silently.
+          // Show the start screen so the student clicks "Start" to grant camera + screen.
+          setHasExistingAttempt(true);
           setFullscreenExitCount(ea.fullscreen_exit_count || 0);
-          initializeTest(); return;
+          setAgreedToTerms(true);
+          setCurrentScreen(1);
+          setLoading(false);
+          return;
         }
         const releaseDate = await getEffectiveUnlockDate(user.id);
         setUnlockDate(releaseDate);
