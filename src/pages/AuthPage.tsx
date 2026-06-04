@@ -115,27 +115,12 @@ export default function AuthPage() {
     setGoogleLoading(true);
     localStorage.setItem('rememberMe', String(rememberMe));
     try {
-      if (isCustomDomain()) {
-        // On custom domain (phynetix.me), bypass auth-bridge
-        const { data, error } = await supabase.auth.signInWithOAuth({
-          provider: "google",
-          options: {
-            redirectTo: `${window.location.origin}/dashboard`,
-            skipBrowserRedirect: true,
-          },
-        });
-        if (error) throw error;
-        if (data?.url) {
-          window.location.href = data.url;
-        }
-      } else {
-        // On Lovable domains, use managed OAuth
-        const { error } = await lovable.auth.signInWithOAuth("google", {
-          redirect_uri: window.location.origin,
-        });
-        if (error) {
-          toast({ title: "Error", description: error.message, variant: "destructive" });
-        }
+      // Use Lovable-managed OAuth on all domains (including phynetix.me)
+      const { error } = await lovable.auth.signInWithOAuth("google", {
+        redirect_uri: window.location.origin,
+      });
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
       }
     } catch (error: any) {
       toast({ title: "Error", description: error.message || "Failed to sign in with Google", variant: "destructive" });
@@ -148,25 +133,11 @@ export default function AuthPage() {
     setAppleLoading(true);
     localStorage.setItem('rememberMe', String(rememberMe));
     try {
-      if (isCustomDomain()) {
-        const { data, error } = await supabase.auth.signInWithOAuth({
-          provider: "apple",
-          options: {
-            redirectTo: `${window.location.origin}/dashboard`,
-            skipBrowserRedirect: true,
-          },
-        });
-        if (error) throw error;
-        if (data?.url) {
-          window.location.href = data.url;
-        }
-      } else {
-        const { error } = await lovable.auth.signInWithOAuth("apple", {
-          redirect_uri: window.location.origin,
-        });
-        if (error) {
-          toast({ title: "Error", description: error.message, variant: "destructive" });
-        }
+      const { error } = await lovable.auth.signInWithOAuth("apple", {
+        redirect_uri: window.location.origin,
+      });
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
       }
     } catch (error: any) {
       toast({ title: "Error", description: error.message || "Failed to sign in with Apple", variant: "destructive" });
