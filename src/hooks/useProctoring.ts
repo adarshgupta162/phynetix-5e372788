@@ -220,7 +220,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         test_name: testName,
         student_name: studentName,
         consent_accepted: true,
-        provider: 'supabase-webrtc',
+        provider: 'livekit',
       },
     } as any;
 
