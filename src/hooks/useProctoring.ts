@@ -271,7 +271,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
           cf_screen_track: deviceState.screen ? '1' : null,
           last_heartbeat_at: new Date().toISOString(),
           metadata: {
-            ...(data.metadata ?? {}),
+            ...(data.metadata && typeof data.metadata === 'object' ? data.metadata : {}),
             provider: 'livekit',
             livekit_room: publish.roomName,
             livekit_identity: publish.identity,
