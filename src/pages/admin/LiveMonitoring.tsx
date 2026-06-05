@@ -188,7 +188,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
             )}
           </div>
           <div className="rounded-xl overflow-hidden border bg-black aspect-video max-h-64 relative">
-            <video ref={cameraRef} autoPlay playsInline className="w-full h-full object-cover" />
+            <video ref={cameraRef} autoPlay playsInline muted className="w-full h-full object-cover" />
             <div className="absolute top-2 left-2"><Badge variant="secondary"><Camera className="w-3 h-3 mr-1" />Camera</Badge></div>
             {!devicesOf(session).camera && (
               <div className="absolute inset-0 flex items-center justify-center text-primary-foreground/70 text-sm">No camera</div>
