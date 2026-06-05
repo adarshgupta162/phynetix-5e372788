@@ -1,6 +1,10 @@
 // Mints LiveKit access tokens for publisher (student) and subscriber (admin).
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createClient } from "npm:@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 const LIVEKIT_URL = Deno.env.get("LIVEKIT_URL")?.trim() ?? "";
 const LIVEKIT_API_KEY = Deno.env.get("LIVEKIT_API_KEY")?.trim() ?? "";
