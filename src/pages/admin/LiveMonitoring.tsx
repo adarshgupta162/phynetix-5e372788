@@ -13,7 +13,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { startSubscriber, type SubscriberHandle } from '@/lib/proctoring/webrtc-signaling';
+import { subscribeToRoom, type SubscribeHandle } from '@/lib/proctoring/livekit';
 
 const LIVE_HEARTBEAT_MS = 60_000;
 const LIVE_START_GRACE_MS = 120_000;
@@ -119,61 +119,47 @@ function DeviceBadges({ s }: { s: Session }) {
 function LiveViewer({ session, events, attempt, test, questions }: { session: Session; events: EventRow[]; attempt?: AttemptRow; test?: TestMeta; questions: QuestionSummary[] }) {
   const cameraRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLVideoElement>(null);
-  const handleRef = useRef<SubscriberHandle | null>(null);
+  const handleRef = useRef<SubscribeHandle | null>(null);
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'live' | 'error' | 'no-stream'>('connecting');
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    if (!session.id) { setStatus('no-stream'); return; }
+    const roomName = roomOf(session);
+    if (!roomName) { setStatus('no-stream'); return; }
 
-    const cameraStream = new MediaStream();
-    const screenStream = new MediaStream();
-
-    const refresh = () => {
-      if (cameraRef.current && cameraRef.current.srcObject !== cameraStream) {
-        cameraRef.current.srcObject = cameraStream;
-        cameraRef.current.play().catch(() => {});
+    const refresh = (handle: SubscribeHandle) => {
+      if (cameraRef.current && cameraRef.current.srcObject !== handle.cameraStream) {
+        cameraRef.current.srcObject = handle.cameraStream;
       }
-      if (screenRef.current && screenRef.current.srcObject !== screenStream) {
-        screenRef.current.srcObject = screenStream;
-        screenRef.current.play().catch(() => {});
+      cameraRef.current?.play().catch(() => {});
+      if (screenRef.current && screenRef.current.srcObject !== handle.screenStream) {
+        screenRef.current.srcObject = handle.screenStream;
       }
+      screenRef.current?.play().catch(() => {});
+      const hasTracks = handle.cameraStream.getTracks().length > 0 || handle.screenStream.getTracks().length > 0;
+      setStatus(hasTracks ? 'live' : 'waiting');
     };
 
-    try {
-      const h = startSubscriber({
-        sessionId: session.id,
-        onStatus: (s, err) => {
-          if (cancelled) return;
-          setStatus(s);
-          if (err) setErrMsg(err);
-        },
-        onTrack: (track, _stream) => {
-          if (cancelled) return;
-          // Heuristic: a remote stream from the publisher carries the original MediaStream id;
-          // route video tracks: if there are 2 video tracks, the first one tends to be camera, second screen.
-          // Simpler: distinguish by track.label patterns from getDisplayMedia/getUserMedia.
-          const label = (track.label || '').toLowerCase();
-          const looksLikeScreen = label.includes('screen') || label.includes('display') || label.includes('window') || label.includes('tab');
-          const target = track.kind === 'audio' ? cameraStream : looksLikeScreen ? screenStream : cameraStream;
-          if (!target.getTracks().includes(track)) target.addTrack(track);
-          refresh();
-        },
+    subscribeToRoom({ roomName, onUpdate: () => { if (!cancelled && handleRef.current) refresh(handleRef.current); } })
+      .then((h) => {
+        if (cancelled) { h.close(); return; }
+        handleRef.current = h;
+        refresh(h);
+      })
+      .catch((e: any) => {
+        if (cancelled) return;
+        console.error('Failed to start LiveKit subscriber', e);
+        setErrMsg(e?.message || String(e));
+        setStatus('error');
       });
-      handleRef.current = h;
-    } catch (e: any) {
-      console.error('Failed to start subscriber', e);
-      setErrMsg(e?.message || String(e));
-      setStatus('error');
-    }
 
     return () => {
       cancelled = true;
       handleRef.current?.close();
       handleRef.current = null;
     };
-  }, [session.id]);
+  }, [session]);
 
   const fullscreenExits = events.filter((e) => e.event_type === 'fullscreen_exit').length;
   const tabSwitches = events.filter((e) => e.event_type === 'tab_switch').length;
@@ -202,7 +188,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
             )}
           </div>
           <div className="rounded-xl overflow-hidden border bg-black aspect-video max-h-64 relative">
-            <video ref={cameraRef} autoPlay playsInline className="w-full h-full object-cover" />
+            <video ref={cameraRef} autoPlay playsInline muted className="w-full h-full object-cover" />
             <div className="absolute top-2 left-2"><Badge variant="secondary"><Camera className="w-3 h-3 mr-1" />Camera</Badge></div>
             {!devicesOf(session).camera && (
               <div className="absolute inset-0 flex items-center justify-center text-primary-foreground/70 text-sm">No camera</div>

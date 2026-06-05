@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { loadEffectiveProctoringSettings } from '@/lib/proctoring/settings';
-import { startPublisher, type PublisherHandle } from '@/lib/proctoring/webrtc-signaling';
+import { publishStreams, type PublishHandle } from '@/lib/proctoring/livekit';
 import type {
   MonitoringSessionRecord,
   ProctoringDeviceState,
@@ -51,7 +51,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const [isStreaming, setIsStreaming] = useState(false);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
-  const connectionRef = useRef<PublisherHandle | null>(null);
+  const connectionRef = useRef<PublishHandle | null>(null);
   const sessionRef = useRef<ProctoringSession | null>(null);
   const devicesRef = useRef<ProctoringDeviceState>({ camera: false, microphone: false, screen: false });
 
@@ -184,7 +184,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const deviceState = devicesRef.current;
 
     const roomName = `proc-${attemptId}`;
-    let publish: PublisherHandle | null = null;
+    let publish: PublishHandle | null = null;
     const liveStreamRequired = effective.require_camera || effective.require_microphone || effective.require_screen || deviceState.camera || deviceState.microphone || deviceState.screen;
     if (liveStreamRequired && !cameraStreamRef.current && !screenStreamRef.current) {
       throw new Error('Live stream could not start. Please allow camera and screen sharing permissions, then resume the test again.');
@@ -220,7 +220,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         test_name: testName,
         student_name: studentName,
         consent_accepted: true,
-        provider: 'supabase-webrtc',
+        provider: 'livekit',
       },
     } as any;
 
@@ -247,11 +247,11 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     setSession(initialSession);
     sessionRef.current = initialSession;
 
-    // Start Supabase Realtime WebRTC publisher (peer-per-viewer). Non-fatal if it fails.
+    // Start LiveKit publisher before admins subscribe. Non-fatal: session still records activity.
     try {
       if (cameraStreamRef.current || screenStreamRef.current) {
-        publish = startPublisher({
-          sessionId: data.id,
+        publish = await publishStreams({
+          roomName,
           cameraStream: cameraStreamRef.current,
           screenStream: screenStreamRef.current,
         });
@@ -265,11 +265,17 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       const { data: updated, error: updateError } = await supabase
         .from('monitoring_sessions')
         .update({
-          cf_session_id: data.id,
+          cf_session_id: publish.roomName,
           cf_camera_track: deviceState.camera ? '1' : null,
           cf_microphone_track: deviceState.microphone ? '1' : null,
           cf_screen_track: deviceState.screen ? '1' : null,
           last_heartbeat_at: new Date().toISOString(),
+          metadata: {
+            ...(data.metadata && typeof data.metadata === 'object' ? data.metadata : {}),
+            provider: 'livekit',
+            livekit_room: publish.roomName,
+            livekit_identity: publish.identity,
+          },
         } as any)
         .eq('id', data.id)
         .select('*')
@@ -287,7 +293,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     await logEvent('session_started', { payload: { devices: deviceState, session_id: data.id } });
     if (deviceState.camera) await logEvent('camera_started');
     if (deviceState.screen) await logEvent('screen_share_started');
-    if (publish) await logEvent('provider_connected', { payload: { provider: 'supabase-webrtc' } });
+    if (publish) await logEvent('provider_connected', { payload: { provider: 'livekit', room: publish.roomName } });
 
     setIsStreaming(true);
     return { ...nextSession, session: nextSession };
