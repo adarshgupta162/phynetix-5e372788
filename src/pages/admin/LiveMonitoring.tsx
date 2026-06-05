@@ -131,12 +131,12 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
     const refresh = (handle: SubscribeHandle) => {
       if (cameraRef.current && cameraRef.current.srcObject !== handle.cameraStream) {
         cameraRef.current.srcObject = handle.cameraStream;
-        cameraRef.current.play().catch(() => {});
       }
+      cameraRef.current?.play().catch(() => {});
       if (screenRef.current && screenRef.current.srcObject !== handle.screenStream) {
         screenRef.current.srcObject = handle.screenStream;
-        screenRef.current.play().catch(() => {});
       }
+      screenRef.current?.play().catch(() => {});
       const hasTracks = handle.cameraStream.getTracks().length > 0 || handle.screenStream.getTracks().length > 0;
       setStatus(hasTracks ? 'live' : 'waiting');
     };
