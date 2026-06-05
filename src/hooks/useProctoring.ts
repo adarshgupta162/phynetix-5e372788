@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { loadEffectiveProctoringSettings } from '@/lib/proctoring/settings';
 import { publishStreams, type PublishHandle } from '@/lib/proctoring/livekit';
+import { publishFrameSnapshots, type FramePublisherHandle } from '@/lib/proctoring/frame-broadcast';
 import type {
   MonitoringSessionRecord,
   ProctoringDeviceState,
@@ -52,6 +53,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const connectionRef = useRef<PublishHandle | null>(null);
+  const framePublisherRef = useRef<FramePublisherHandle | null>(null);
   const sessionRef = useRef<ProctoringSession | null>(null);
   const devicesRef = useRef<ProctoringDeviceState>({ camera: false, microphone: false, screen: false });
 
@@ -250,6 +252,12 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     // Start LiveKit publisher before admins subscribe. Non-fatal: session still records activity.
     try {
       if (cameraStreamRef.current || screenStreamRef.current) {
+        framePublisherRef.current?.close();
+        framePublisherRef.current = publishFrameSnapshots({
+          sessionId: data.id,
+          cameraStream: cameraStreamRef.current,
+          screenStream: screenStreamRef.current,
+        });
         publish = await publishStreams({
           roomName,
           cameraStream: cameraStreamRef.current,
@@ -294,6 +302,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     if (deviceState.camera) await logEvent('camera_started');
     if (deviceState.screen) await logEvent('screen_share_started');
     if (publish) await logEvent('provider_connected', { payload: { provider: 'livekit', room: publish.roomName } });
+    if (framePublisherRef.current) await logEvent('frame_fallback_started', { payload: { session_id: data.id } });
 
     setIsStreaming(true);
     return { ...nextSession, session: nextSession };
@@ -306,6 +315,8 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     }
     connectionRef.current?.close();
     connectionRef.current = null;
+    framePublisherRef.current?.close();
+    framePublisherRef.current = null;
     stopStream(cameraStreamRef.current);
     stopStream(screenStreamRef.current);
     cameraStreamRef.current = null;
@@ -379,6 +390,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
 
   useEffect(() => () => {
     connectionRef.current?.close();
+    framePublisherRef.current?.close();
     stopStream(cameraStreamRef.current);
     stopStream(screenStreamRef.current);
   }, []);

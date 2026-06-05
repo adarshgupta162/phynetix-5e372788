@@ -14,6 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { subscribeToRoom, type SubscribeHandle } from '@/lib/proctoring/livekit';
+import { subscribeToFrameSnapshots, type FrameSubscriberHandle, type MonitorFramePayload } from '@/lib/proctoring/frame-broadcast';
 
 const LIVE_HEARTBEAT_MS = 60_000;
 const LIVE_START_GRACE_MS = 120_000;
@@ -120,6 +121,9 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
   const cameraRef = useRef<HTMLVideoElement>(null);
   const screenRef = useRef<HTMLVideoElement>(null);
   const handleRef = useRef<SubscribeHandle | null>(null);
+  const frameHandleRef = useRef<FrameSubscriberHandle | null>(null);
+  const frameSeenRef = useRef(false);
+  const [frames, setFrames] = useState<Partial<Record<MonitorFramePayload['kind'], string>>>({});
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'live' | 'error' | 'no-stream'>('connecting');
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
@@ -127,6 +131,21 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
     let cancelled = false;
     const roomName = roomOf(session);
     if (!roomName) { setStatus('no-stream'); return; }
+    const frameSessionId = session.id;
+
+    frameSeenRef.current = false;
+    setFrames({});
+    frameHandleRef.current = subscribeToFrameSnapshots({
+      sessionId: frameSessionId,
+      onWaiting: () => setStatus((current) => current === 'connecting' ? 'waiting' : current),
+      onFrame: (frame) => {
+        if (cancelled) return;
+        frameSeenRef.current = true;
+        setFrames((current) => ({ ...current, [frame.kind]: frame.dataUrl }));
+        setErrMsg(null);
+        setStatus('live');
+      },
+    });
 
     const refresh = (handle: SubscribeHandle) => {
       if (cameraRef.current && cameraRef.current.srcObject !== handle.cameraStream) {
@@ -151,13 +170,15 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
         if (cancelled) return;
         console.error('Failed to start LiveKit subscriber', e);
         setErrMsg(e?.message || String(e));
-        setStatus('error');
+        setStatus(frameSeenRef.current ? 'live' : 'error');
       });
 
     return () => {
       cancelled = true;
       handleRef.current?.close();
       handleRef.current = null;
+      frameHandleRef.current?.close();
+      frameHandleRef.current = null;
     };
   }, [session]);
 
@@ -182,6 +203,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
         <div className="grid grid-cols-1 gap-3">
           <div className="rounded-xl overflow-hidden border bg-black aspect-video relative">
             <video ref={screenRef} autoPlay playsInline muted className="w-full h-full object-contain" />
+            {frames.screen && <img src={frames.screen} alt="Live screen snapshot" className="absolute inset-0 w-full h-full object-contain" />}
             <div className="absolute top-2 left-2"><Badge variant="secondary"><MonitorUp className="w-3 h-3 mr-1" />Screen</Badge></div>
             {!devicesOf(session).screen && (
               <div className="absolute inset-0 flex items-center justify-center text-primary-foreground/70 text-sm">No screen share</div>
@@ -189,6 +211,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
           </div>
           <div className="rounded-xl overflow-hidden border bg-black aspect-video max-h-64 relative">
             <video ref={cameraRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+            {frames.camera && <img src={frames.camera} alt="Live camera snapshot" className="absolute inset-0 w-full h-full object-cover" />}
             <div className="absolute top-2 left-2"><Badge variant="secondary"><Camera className="w-3 h-3 mr-1" />Camera</Badge></div>
             {!devicesOf(session).camera && (
               <div className="absolute inset-0 flex items-center justify-center text-primary-foreground/70 text-sm">No camera</div>
