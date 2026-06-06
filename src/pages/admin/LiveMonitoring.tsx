@@ -137,6 +137,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
     setFrames({});
     frameHandleRef.current = subscribeToFrameSnapshots({
       sessionId: frameSessionId,
+      attemptId: session.attempt_id,
       onWaiting: () => setStatus((current) => current === 'connecting' ? 'waiting' : current),
       onFrame: (frame) => {
         if (cancelled) return;
@@ -195,7 +196,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
     : Math.max(0, Math.floor((Date.now() - new Date(attempt?.started_at || session.started_at).getTime()) / 1000));
   const timeLeft = durationSeconds ? Math.max(0, durationSeconds - elapsedSeconds) : null;
   const streamErrorMessage = errMsg;
-  const roomName = session.id;
+  const roomName = roomOf(session) || session.id;
 
   return (
     <div className="grid lg:grid-cols-[2fr,1fr] gap-4">
@@ -304,7 +305,11 @@ export default function LiveMonitoring() {
       setLoading(false);
       return;
     }
-    const allSessions = (s.data || []).map(normalizeSession);
+    const allSessions = Array.from((s.data || []).map(normalizeSession).reduce((map, row) => {
+      const key = row.attempt_id || row.id;
+      if (!map.has(key)) map.set(key, row);
+      return map;
+    }, new Map<string, Session>()).values());
     const attemptIds = Array.from(new Set(allSessions.map((row) => row.attempt_id).filter(Boolean))) as string[];
     const testIds = Array.from(new Set(allSessions.map((row) => row.test_id).filter(Boolean))) as string[];
     const [attemptRows, testRows, regularQuestions, sectionQuestions] = await Promise.all([
@@ -349,6 +354,13 @@ export default function LiveMonitoring() {
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const fresh = sessions.find((row) => row.id === selected.id)
+      || sessions.find((row) => row.attempt_id && row.attempt_id === selected.attempt_id);
+    if (fresh && fresh !== selected) setSelected(fresh);
+  }, [selected, sessions]);
 
   useEffect(() => {
     const ch = supabase

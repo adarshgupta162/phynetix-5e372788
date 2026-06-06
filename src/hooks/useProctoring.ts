@@ -50,6 +50,8 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const [devices, setDevices] = useState<ProctoringDeviceState>({ camera: false, microphone: false, screen: false });
   const [isPreparing, setIsPreparing] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [needsRecovery, setNeedsRecovery] = useState(false);
+  const [recoveryReason, setRecoveryReason] = useState<string | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const connectionRef = useRef<PublishHandle | null>(null);
@@ -93,6 +95,10 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const prepare = useCallback(async (opts: { silent?: boolean } = {}) => {
     if (!testId) return { settings: null, devices: { camera: false, microphone: false, screen: false } };
     setIsPreparing(true);
+    stopStream(cameraStreamRef.current);
+    stopStream(screenStreamRef.current);
+    cameraStreamRef.current = null;
+    screenStreamRef.current = null;
     const effective = settings ?? await loadSettings();
     if (!effective?.enabled) {
       setIsPreparing(false);
@@ -132,10 +138,19 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         nextDevices.camera = effective.require_camera ? cameraStreamRef.current.getVideoTracks().length > 0 : false;
         nextDevices.microphone = effective.require_microphone ? cameraStreamRef.current.getAudioTracks().length > 0 : false;
         cameraStreamRef.current.getVideoTracks().forEach((track) => {
-          track.onended = () => logEvent('camera_stopped', { payload: { label: track.label } });
+          track.onended = () => {
+            setNeedsRecovery(true);
+            setRecoveryReason('Camera stopped. Resume monitoring to continue the test.');
+            void logEvent('camera_stopped', { payload: { label: track.label } });
+          };
         });
         cameraStreamRef.current.getAudioTracks().forEach((track) => {
           track.onmute = () => logEvent('microphone_muted', { payload: { label: track.label } });
+          track.onended = () => {
+            setNeedsRecovery(true);
+            setRecoveryReason('Microphone stopped. Resume monitoring to continue the test.');
+            void logEvent('microphone_stopped', { payload: { label: track.label } });
+          };
         });
       }
     } catch (error) {
@@ -148,7 +163,11 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         screenStreamRef.current = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
         nextDevices.screen = screenStreamRef.current.getVideoTracks().length > 0;
         screenStreamRef.current.getTracks().forEach((track) => {
-          track.onended = () => logEvent('screen_share_stopped', { payload: { label: track.label, kind: track.kind } });
+          track.onended = () => {
+            setNeedsRecovery(true);
+            setRecoveryReason('Screen sharing stopped. Resume monitoring to continue the test.');
+            void logEvent('screen_share_stopped', { payload: { label: track.label, kind: track.kind } });
+          };
         });
       }
     } catch (error) {
@@ -162,7 +181,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       effective.require_screen && !nextDevices.screen ? 'screen' : null,
     ].filter(Boolean);
 
-    if (missingRequired.length && !effective.allow_optional_device_fallback) {
+    if (missingRequired.length) {
       stopStream(cameraStreamRef.current);
       stopStream(screenStreamRef.current);
       cameraStreamRef.current = null;
@@ -173,6 +192,8 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
 
     setDevices(nextDevices);
     devicesRef.current = nextDevices;
+    setNeedsRecovery(false);
+    setRecoveryReason(null);
     setIsPreparing(false);
     return { settings: effective, devices: nextDevices, failures };
   }, [loadSettings, logEvent, settings, testId]);
@@ -209,7 +230,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const basePayload = {
       attempt_id: String(attemptId),
       student_id: studentId ? String(studentId) : null,
-      test_id: testId ?? null,
+      test_id: testId ? String(testId) : null,
       student_name: studentName,
       test_name: testName,
       status: 'active',
@@ -219,10 +240,12 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         ...metadata,
         devices: deviceState,
         test_id: testId ?? null,
+        student_id: studentId,
         test_name: testName,
         student_name: studentName,
         consent_accepted: true,
         provider: 'livekit',
+        livekit_room: roomName,
       },
     } as any;
 
@@ -230,7 +253,6 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       .from('monitoring_sessions')
       .select('*')
       .eq('attempt_id', String(attemptId))
-      .eq('status', 'active')
       .order('started_at', { ascending: false })
       .limit(1);
     if (existingError) throw new Error(`Live monitoring session lookup failed: ${existingError.message}`);
@@ -255,6 +277,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         framePublisherRef.current?.close();
         framePublisherRef.current = publishFrameSnapshots({
           sessionId: data.id,
+          attemptId: String(attemptId),
           cameraStream: cameraStreamRef.current,
           screenStream: screenStreamRef.current,
         });
@@ -280,6 +303,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
           last_heartbeat_at: new Date().toISOString(),
           metadata: {
             ...(data.metadata && typeof data.metadata === 'object' ? data.metadata : {}),
+            devices: deviceState,
             provider: 'livekit',
             livekit_room: publish.roomName,
             livekit_identity: publish.identity,
@@ -305,8 +329,26 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     if (framePublisherRef.current) await logEvent('frame_fallback_started', { payload: { session_id: data.id } });
 
     setIsStreaming(true);
+    setNeedsRecovery(false);
+    setRecoveryReason(null);
     return { ...nextSession, session: nextSession };
   }, [loadSettings, logEvent, settings, testId, userId]);
+
+  const recover = useCallback(async () => {
+    const activeSession = sessionRef.current;
+    if (!activeSession?.attempt_id) return null;
+    connectionRef.current?.close();
+    connectionRef.current = null;
+    framePublisherRef.current?.close();
+    framePublisherRef.current = null;
+    const prepared = await prepare({ silent: true });
+    await logEvent('stream_recovery_requested', { payload: { reason: recoveryReason, devices: prepared.devices } });
+    return start(activeSession.attempt_id, {
+      ...(activeSession.metadata ?? {}),
+      recovery: true,
+      recovered_at: nowIso(),
+    });
+  }, [logEvent, prepare, recoveryReason, start]);
 
   const stop = useCallback(async (reason = 'student_stop') => {
     const activeSession = sessionRef.current;
@@ -321,6 +363,8 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     stopStream(screenStreamRef.current);
     cameraStreamRef.current = null;
     screenStreamRef.current = null;
+    setNeedsRecovery(false);
+    setRecoveryReason(null);
     devicesRef.current = { camera: false, microphone: false, screen: false };
     setDevices(devicesRef.current);
     setIsStreaming(false);
@@ -388,6 +432,29 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     };
   }, [logEvent, session?.id]);
 
+  useEffect(() => {
+    if (!session?.id || !isStreaming || !settings?.enabled) return;
+    const requiredDevices: Array<[keyof ProctoringDeviceState, () => MediaStream | null, string]> = [
+      ['camera', () => cameraStreamRef.current, 'Camera stopped. Resume monitoring to continue the test.'],
+      ['microphone', () => cameraStreamRef.current, 'Microphone stopped. Resume monitoring to continue the test.'],
+      ['screen', () => screenStreamRef.current, 'Screen sharing stopped. Resume monitoring to continue the test.'],
+    ];
+    const interval = window.setInterval(() => {
+      for (const [kind, streamFor, message] of requiredDevices) {
+        const required = kind === 'camera' ? settings.require_camera : kind === 'microphone' ? settings.require_microphone : settings.require_screen;
+        if (!required) continue;
+        const tracks = streamFor()?.getTracks().filter((track) => kind === 'microphone' ? track.kind === 'audio' : track.kind === 'video') ?? [];
+        if (!tracks.length || tracks.every((track) => track.readyState === 'ended')) {
+          setNeedsRecovery(true);
+          setRecoveryReason(message);
+          void logEvent(`${kind}_missing`, { payload: { source: 'health_check' } });
+          break;
+        }
+      }
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [isStreaming, logEvent, session?.id, settings]);
+
   useEffect(() => () => {
     connectionRef.current?.close();
     framePublisherRef.current?.close();
@@ -395,5 +462,5 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     stopStream(screenStreamRef.current);
   }, []);
 
-  return { settings, session, devices, isPreparing, isStreaming, loadSettings, prepare, start, stop, logEvent };
+  return { settings, session, devices, isPreparing, isStreaming, needsRecovery, recoveryReason, loadSettings, prepare, start, recover, stop, logEvent };
 }

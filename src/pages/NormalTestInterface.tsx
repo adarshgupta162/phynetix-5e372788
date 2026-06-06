@@ -718,6 +718,15 @@ export default function NormalTestInterface() {
     handleSubmit(true, true);
   }, [handleSubmit]);
 
+  const resumeMonitoring = useCallback(async () => {
+    try {
+      await proctoring.recover();
+      toast({ title: "Monitoring resumed", description: "Camera and screen sharing are live again." });
+    } catch (error: any) {
+      toast({ title: "Live monitoring required", description: error.message || "Please allow camera and screen sharing again.", variant: "destructive" });
+    }
+  }, [proctoring]);
+
   const getQuestionStatus = (qid: string) => {
     if (currentQuestion?.id === qid) return "current";
     if (markedForReview.has(qid) && isAnswerPresent(answers[qid])) return "answered-marked";
@@ -1293,6 +1302,28 @@ export default function NormalTestInterface() {
             }}>
             <WifiOff style={{ width: 16, height: 16 }} />
             No internet connection. Your progress may not be saved.
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── MONITORING RECOVERY POPUP ── */}
+      <AnimatePresence>
+        {proctoring.needsRecovery && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.66)", zIndex: 100000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+            <motion.div initial={{ scale: .96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: .96, opacity: 0 }}
+              style={{ width: 430, maxWidth: "100%", background: "#fff", border: "1px solid #999", borderRadius: 4, padding: 20, fontFamily: "Arial,sans-serif", boxShadow: "0 10px 40px rgba(0,0,0,.35)" }}>
+              <div style={{ fontSize: 16, fontWeight: "bold", color: "#cc0000", borderBottom: "2px solid #cc0000", paddingBottom: 8, marginBottom: 12 }}>
+                Live monitoring stopped
+              </div>
+              <p style={{ fontSize: 13, color: "#333", lineHeight: 1.6, marginBottom: 14 }}>
+                {proctoring.recoveryReason || "Camera or screen sharing stopped. Resume monitoring to continue the test."}
+              </p>
+              <button onClick={resumeMonitoring} disabled={proctoring.isPreparing}
+                style={{ width: "100%", padding: "10px 18px", background: C.secActive, border: "none", color: "#fff", fontSize: 14, fontWeight: "bold", cursor: proctoring.isPreparing ? "wait" : "pointer", borderRadius: 2 }}>
+                {proctoring.isPreparing ? "Opening permissions…" : "Resume Camera & Screen"}
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
