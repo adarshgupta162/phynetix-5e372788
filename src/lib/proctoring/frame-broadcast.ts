@@ -12,20 +12,25 @@ export type MonitorFramePayload = {
 };
 
 export type FramePublisherHandle = {
-  channel: RealtimeChannel;
+  channels: RealtimeChannel[];
   close: () => void;
 };
 
 export type FrameSubscriberHandle = {
-  channel: RealtimeChannel;
+  channels: RealtimeChannel[];
   close: () => void;
 };
 
-const FRAME_INTERVAL_MS = 900;
-const MAX_FRAME_WIDTH = 640;
-const JPEG_QUALITY = 0.38;
+const FRAME_INTERVAL_MS = 1000;
+const MAX_FRAME_WIDTH = 480;
+const JPEG_QUALITY = 0.3;
 
 const channelName = (sessionId: string) => `monitor-frames-${sessionId}`;
+const attemptChannelName = (attemptId: string) => `monitor-frames-attempt-${attemptId}`;
+
+const uniqueChannelNames = (sessionId: string, attemptId?: string | null) => (
+  Array.from(new Set([channelName(sessionId), attemptId ? attemptChannelName(attemptId) : null].filter(Boolean) as string[]))
+);
 
 const createVideoElement = (stream: MediaStream) => {
   const video = document.createElement('video');
@@ -39,12 +44,14 @@ const createVideoElement = (stream: MediaStream) => {
 
 export function publishFrameSnapshots(opts: {
   sessionId: string;
+  attemptId?: string | null;
   cameraStream?: MediaStream | null;
   screenStream?: MediaStream | null;
 }): FramePublisherHandle {
-  const channel = supabase.channel(channelName(opts.sessionId), {
+  const subscribed = new Set<RealtimeChannel>();
+  const channels = uniqueChannelNames(opts.sessionId, opts.attemptId).map((name) => supabase.channel(name, {
     config: { broadcast: { ack: false, self: false } },
-  });
+  }));
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { alpha: false });
   const cameraVideo = opts.cameraStream?.getVideoTracks().length ? createVideoElement(opts.cameraStream) : null;
@@ -66,7 +73,9 @@ export function publishFrameSnapshots(opts: {
       width,
       height,
     };
-    void channel.send({ type: 'broadcast', event: 'frame', payload });
+    subscribed.forEach((channel) => {
+      void channel.send({ type: 'broadcast', event: 'frame', payload });
+    });
   };
 
   const tick = () => {
@@ -74,14 +83,18 @@ export function publishFrameSnapshots(opts: {
     if (cameraVideo) publishFrame('camera', cameraVideo);
   };
 
-  channel.subscribe((status) => {
-    if (status !== 'SUBSCRIBED' || intervalId !== null) return;
-    tick();
-    intervalId = window.setInterval(tick, FRAME_INTERVAL_MS);
+  channels.forEach((channel) => {
+    channel.subscribe((status) => {
+      if (status !== 'SUBSCRIBED') return;
+      subscribed.add(channel);
+      if (intervalId !== null) return;
+      tick();
+      intervalId = window.setInterval(tick, FRAME_INTERVAL_MS);
+    });
   });
 
   return {
-    channel,
+    channels,
     close: () => {
       if (intervalId !== null) window.clearInterval(intervalId);
       [cameraVideo, screenVideo].forEach((video) => {
@@ -89,34 +102,41 @@ export function publishFrameSnapshots(opts: {
         video.pause();
         video.srcObject = null;
       });
-      try { supabase.removeChannel(channel); } catch { /* ignore */ }
+      channels.forEach((channel) => {
+        try { supabase.removeChannel(channel); } catch { /* ignore */ }
+      });
     },
   };
 }
 
 export function subscribeToFrameSnapshots(opts: {
   sessionId: string;
+  attemptId?: string | null;
   onFrame: (frame: MonitorFramePayload) => void;
   onWaiting?: () => void;
 }): FrameSubscriberHandle {
-  const channel = supabase.channel(channelName(opts.sessionId), {
+  const channels = uniqueChannelNames(opts.sessionId, opts.attemptId).map((name) => supabase.channel(name, {
     config: { broadcast: { ack: false, self: false } },
+  }));
+
+  channels.forEach((channel) => {
+    channel
+      .on('broadcast', { event: 'frame' }, (message) => {
+        const payload = message.payload as Partial<MonitorFramePayload> | undefined;
+        if (!payload?.dataUrl || (payload.kind !== 'camera' && payload.kind !== 'screen')) return;
+        opts.onFrame(payload as MonitorFramePayload);
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') opts.onWaiting?.();
+      });
   });
 
-  channel
-    .on('broadcast', { event: 'frame' }, (message) => {
-      const payload = message.payload as Partial<MonitorFramePayload> | undefined;
-      if (!payload?.dataUrl || (payload.kind !== 'camera' && payload.kind !== 'screen')) return;
-      opts.onFrame(payload as MonitorFramePayload);
-    })
-    .subscribe((status) => {
-      if (status === 'SUBSCRIBED') opts.onWaiting?.();
-    });
-
   return {
-    channel,
+    channels,
     close: () => {
-      try { supabase.removeChannel(channel); } catch { /* ignore */ }
+      channels.forEach((channel) => {
+        try { supabase.removeChannel(channel); } catch { /* ignore */ }
+      });
     },
   };
 }
