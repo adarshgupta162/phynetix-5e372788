@@ -50,6 +50,8 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const [devices, setDevices] = useState<ProctoringDeviceState>({ camera: false, microphone: false, screen: false });
   const [isPreparing, setIsPreparing] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [needsRecovery, setNeedsRecovery] = useState(false);
+  const [recoveryReason, setRecoveryReason] = useState<string | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const connectionRef = useRef<PublishHandle | null>(null);
@@ -93,6 +95,10 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
   const prepare = useCallback(async (opts: { silent?: boolean } = {}) => {
     if (!testId) return { settings: null, devices: { camera: false, microphone: false, screen: false } };
     setIsPreparing(true);
+    stopStream(cameraStreamRef.current);
+    stopStream(screenStreamRef.current);
+    cameraStreamRef.current = null;
+    screenStreamRef.current = null;
     const effective = settings ?? await loadSettings();
     if (!effective?.enabled) {
       setIsPreparing(false);
@@ -132,10 +138,19 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         nextDevices.camera = effective.require_camera ? cameraStreamRef.current.getVideoTracks().length > 0 : false;
         nextDevices.microphone = effective.require_microphone ? cameraStreamRef.current.getAudioTracks().length > 0 : false;
         cameraStreamRef.current.getVideoTracks().forEach((track) => {
-          track.onended = () => logEvent('camera_stopped', { payload: { label: track.label } });
+          track.onended = () => {
+            setNeedsRecovery(true);
+            setRecoveryReason('Camera stopped. Resume monitoring to continue the test.');
+            void logEvent('camera_stopped', { payload: { label: track.label } });
+          };
         });
         cameraStreamRef.current.getAudioTracks().forEach((track) => {
           track.onmute = () => logEvent('microphone_muted', { payload: { label: track.label } });
+          track.onended = () => {
+            setNeedsRecovery(true);
+            setRecoveryReason('Microphone stopped. Resume monitoring to continue the test.');
+            void logEvent('microphone_stopped', { payload: { label: track.label } });
+          };
         });
       }
     } catch (error) {
@@ -148,7 +163,11 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         screenStreamRef.current = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
         nextDevices.screen = screenStreamRef.current.getVideoTracks().length > 0;
         screenStreamRef.current.getTracks().forEach((track) => {
-          track.onended = () => logEvent('screen_share_stopped', { payload: { label: track.label, kind: track.kind } });
+          track.onended = () => {
+            setNeedsRecovery(true);
+            setRecoveryReason('Screen sharing stopped. Resume monitoring to continue the test.');
+            void logEvent('screen_share_stopped', { payload: { label: track.label, kind: track.kind } });
+          };
         });
       }
     } catch (error) {
@@ -162,7 +181,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       effective.require_screen && !nextDevices.screen ? 'screen' : null,
     ].filter(Boolean);
 
-    if (missingRequired.length && !effective.allow_optional_device_fallback) {
+    if (missingRequired.length) {
       stopStream(cameraStreamRef.current);
       stopStream(screenStreamRef.current);
       cameraStreamRef.current = null;
@@ -173,6 +192,8 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
 
     setDevices(nextDevices);
     devicesRef.current = nextDevices;
+    setNeedsRecovery(false);
+    setRecoveryReason(null);
     setIsPreparing(false);
     return { settings: effective, devices: nextDevices, failures };
   }, [loadSettings, logEvent, settings, testId]);
