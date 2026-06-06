@@ -137,6 +137,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
     setFrames({});
     frameHandleRef.current = subscribeToFrameSnapshots({
       sessionId: frameSessionId,
+      attemptId: session.attempt_id,
       onWaiting: () => setStatus((current) => current === 'connecting' ? 'waiting' : current),
       onFrame: (frame) => {
         if (cancelled) return;
@@ -195,7 +196,7 @@ function LiveViewer({ session, events, attempt, test, questions }: { session: Se
     : Math.max(0, Math.floor((Date.now() - new Date(attempt?.started_at || session.started_at).getTime()) / 1000));
   const timeLeft = durationSeconds ? Math.max(0, durationSeconds - elapsedSeconds) : null;
   const streamErrorMessage = errMsg;
-  const roomName = session.id;
+  const roomName = roomOf(session) || session.id;
 
   return (
     <div className="grid lg:grid-cols-[2fr,1fr] gap-4">
