@@ -230,7 +230,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     const basePayload = {
       attempt_id: String(attemptId),
       student_id: studentId ? String(studentId) : null,
-      test_id: testId ?? null,
+      test_id: testId ? String(testId) : null,
       student_name: studentName,
       test_name: testName,
       status: 'active',
@@ -240,10 +240,12 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         ...metadata,
         devices: deviceState,
         test_id: testId ?? null,
+        student_id: studentId,
         test_name: testName,
         student_name: studentName,
         consent_accepted: true,
         provider: 'livekit',
+        livekit_room: roomName,
       },
     } as any;
 
@@ -251,7 +253,6 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
       .from('monitoring_sessions')
       .select('*')
       .eq('attempt_id', String(attemptId))
-      .eq('status', 'active')
       .order('started_at', { ascending: false })
       .limit(1);
     if (existingError) throw new Error(`Live monitoring session lookup failed: ${existingError.message}`);
@@ -276,6 +277,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
         framePublisherRef.current?.close();
         framePublisherRef.current = publishFrameSnapshots({
           sessionId: data.id,
+          attemptId: String(attemptId),
           cameraStream: cameraStreamRef.current,
           screenStream: screenStreamRef.current,
         });
@@ -301,6 +303,7 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
           last_heartbeat_at: new Date().toISOString(),
           metadata: {
             ...(data.metadata && typeof data.metadata === 'object' ? data.metadata : {}),
+            devices: deviceState,
             provider: 'livekit',
             livekit_room: publish.roomName,
             livekit_identity: publish.identity,
@@ -326,8 +329,26 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     if (framePublisherRef.current) await logEvent('frame_fallback_started', { payload: { session_id: data.id } });
 
     setIsStreaming(true);
+    setNeedsRecovery(false);
+    setRecoveryReason(null);
     return { ...nextSession, session: nextSession };
   }, [loadSettings, logEvent, settings, testId, userId]);
+
+  const recover = useCallback(async () => {
+    const activeSession = sessionRef.current;
+    if (!activeSession?.attempt_id) return null;
+    connectionRef.current?.close();
+    connectionRef.current = null;
+    framePublisherRef.current?.close();
+    framePublisherRef.current = null;
+    const prepared = await prepare({ silent: true });
+    await logEvent('stream_recovery_requested', { payload: { reason: recoveryReason, devices: prepared.devices } });
+    return start(activeSession.attempt_id, {
+      ...(activeSession.metadata ?? {}),
+      recovery: true,
+      recovered_at: nowIso(),
+    });
+  }, [logEvent, prepare, recoveryReason, start]);
 
   const stop = useCallback(async (reason = 'student_stop') => {
     const activeSession = sessionRef.current;
@@ -416,5 +437,5 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     stopStream(screenStreamRef.current);
   }, []);
 
-  return { settings, session, devices, isPreparing, isStreaming, loadSettings, prepare, start, stop, logEvent };
+  return { settings, session, devices, isPreparing, isStreaming, needsRecovery, recoveryReason, loadSettings, prepare, start, recover, stop, logEvent };
 }
