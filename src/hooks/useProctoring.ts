@@ -432,6 +432,29 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     };
   }, [logEvent, session?.id]);
 
+  useEffect(() => {
+    if (!session?.id || !isStreaming || !settings?.enabled) return;
+    const requiredDevices: Array<[keyof ProctoringDeviceState, () => MediaStream | null, string]> = [
+      ['camera', () => cameraStreamRef.current, 'Camera stopped. Resume monitoring to continue the test.'],
+      ['microphone', () => cameraStreamRef.current, 'Microphone stopped. Resume monitoring to continue the test.'],
+      ['screen', () => screenStreamRef.current, 'Screen sharing stopped. Resume monitoring to continue the test.'],
+    ];
+    const interval = window.setInterval(() => {
+      for (const [kind, streamFor, message] of requiredDevices) {
+        const required = kind === 'camera' ? settings.require_camera : kind === 'microphone' ? settings.require_microphone : settings.require_screen;
+        if (!required) continue;
+        const tracks = streamFor()?.getTracks().filter((track) => kind === 'microphone' ? track.kind === 'audio' : track.kind === 'video') ?? [];
+        if (!tracks.length || tracks.every((track) => track.readyState === 'ended')) {
+          setNeedsRecovery(true);
+          setRecoveryReason(message);
+          void logEvent(`${kind}_missing`, { payload: { source: 'health_check' } });
+          break;
+        }
+      }
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [isStreaming, logEvent, session?.id, settings]);
+
   useEffect(() => () => {
     connectionRef.current?.close();
     framePublisherRef.current?.close();
