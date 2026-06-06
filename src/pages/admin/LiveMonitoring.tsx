@@ -356,6 +356,13 @@ export default function LiveMonitoring() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
+    if (!selected) return;
+    const fresh = sessions.find((row) => row.id === selected.id)
+      || sessions.find((row) => row.attempt_id && row.attempt_id === selected.attempt_id);
+    if (fresh && fresh !== selected) setSelected(fresh);
+  }, [selected, sessions]);
+
+  useEffect(() => {
     const ch = supabase
       .channel('admin-live-monitoring')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'monitoring_sessions' }, () => load())
