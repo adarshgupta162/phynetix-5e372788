@@ -305,7 +305,11 @@ export default function LiveMonitoring() {
       setLoading(false);
       return;
     }
-    const allSessions = (s.data || []).map(normalizeSession);
+    const allSessions = Array.from((s.data || []).map(normalizeSession).reduce((map, row) => {
+      const key = row.attempt_id || row.id;
+      if (!map.has(key)) map.set(key, row);
+      return map;
+    }, new Map<string, Session>()).values());
     const attemptIds = Array.from(new Set(allSessions.map((row) => row.attempt_id).filter(Boolean))) as string[];
     const testIds = Array.from(new Set(allSessions.map((row) => row.test_id).filter(Boolean))) as string[];
     const [attemptRows, testRows, regularQuestions, sectionQuestions] = await Promise.all([

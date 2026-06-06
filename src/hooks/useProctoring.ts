@@ -363,6 +363,8 @@ export function useProctoring(testId?: string | null, userId?: string | null) {
     stopStream(screenStreamRef.current);
     cameraStreamRef.current = null;
     screenStreamRef.current = null;
+    setNeedsRecovery(false);
+    setRecoveryReason(null);
     devicesRef.current = { camera: false, microphone: false, screen: false };
     setDevices(devicesRef.current);
     setIsStreaming(false);
