@@ -6,6 +6,15 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY =
   import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  // Fail loudly during development instead of silently creating a broken client
+  // that makes every database query reject.
+  console.error(
+    "[supabase] Missing Supabase configuration. VITE_SUPABASE_URL and " +
+      "VITE_SUPABASE_ANON_KEY must be set. Check your environment variables."
+  );
+}
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
