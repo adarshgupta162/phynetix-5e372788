@@ -8,8 +8,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
-import { isLovableDomain, isCustomDomain } from "@/lib/canonical";
 import { z } from "zod";
 
 const loginSchema = z.object({
@@ -52,12 +50,13 @@ export default function AuthPage() {
 
   // Check if returning from OAuth callback
   useEffect(() => {
+    const authCode = searchParams.get("code");
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
     const accessToken = hashParams.get('access_token');
-    if (accessToken) {
+    if (accessToken || authCode) {
       setIsRedirecting(true);
     }
-  }, []);
+  }, [searchParams]);
 
   // Handle remember me
   useEffect(() => {
@@ -115,9 +114,11 @@ export default function AuthPage() {
     setGoogleLoading(true);
     localStorage.setItem('rememberMe', String(rememberMe));
     try {
-      // Use Lovable-managed OAuth on all domains (including phynetix.me)
-      const { error } = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: "https://phynetix.me/auth",
+        },
       });
       if (error) {
         toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -133,8 +134,11 @@ export default function AuthPage() {
     setAppleLoading(true);
     localStorage.setItem('rememberMe', String(rememberMe));
     try {
-      const { error } = await lovable.auth.signInWithOAuth("apple", {
-        redirect_uri: window.location.origin,
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "apple",
+        options: {
+          redirectTo: "https://phynetix.me/auth",
+        },
       });
       if (error) {
         toast({ title: "Error", description: error.message, variant: "destructive" });
