@@ -13,18 +13,53 @@ export function useUserEnrollments() {
     queryFn: async () => {
       if (!user) return [];
 
-      const { data, error } = await supabase
+      console.info('[useUserEnrollments] loading enrollments for user:', user.id);
+
+      const { data: enrollments, error: enrollmentsError } = await supabase
         .from('batch_enrollments')
-        .select(`
-          *,
-          batches (*)
-        `)
+        .select('*')
         .eq('user_id', user.id)
         .eq('is_active', true)
         .order('enrolled_at', { ascending: false });
 
-      if (error) throw error;
-      return data;
+      console.log('[useUserEnrollments] enrollments response:', enrollments);
+      if (enrollmentsError) {
+        console.error('[useUserEnrollments] enrollments error:', enrollmentsError);
+        throw enrollmentsError;
+      }
+
+      const enrollmentRows = enrollments ?? [];
+      const mismatchedUserRows = enrollmentRows.filter((enrollment) => enrollment.user_id !== user.id);
+      if (mismatchedUserRows.length > 0) {
+        console.warn('[useUserEnrollments] found user_id mismatch rows:', mismatchedUserRows);
+      } else {
+        console.info('[useUserEnrollments] verified all enrollment user_id values match auth user.id');
+      }
+
+      const batchIds = [...new Set(enrollmentRows.map((enrollment) => enrollment.batch_id))];
+      if (batchIds.length === 0) {
+        return enrollmentRows.map((enrollment) => ({ ...enrollment, batches: null }));
+      }
+
+      const { data: batches, error: batchesError } = await supabase
+        .from('batches')
+        .select('*')
+        .in('id', batchIds);
+
+      console.log('[useUserEnrollments] batches response:', batches);
+      if (batchesError) {
+        console.error('[useUserEnrollments] batches error:', batchesError);
+        throw batchesError;
+      }
+
+      const batchById = new Map((batches ?? []).map((batch) => [batch.id, batch]));
+      const combined = enrollmentRows.map((enrollment) => ({
+        ...enrollment,
+        batches: batchById.get(enrollment.batch_id) ?? null,
+      }));
+
+      console.log('[useUserEnrollments] combined enrollment+batches result:', combined);
+      return combined;
     },
     enabled: !!user,
   });
