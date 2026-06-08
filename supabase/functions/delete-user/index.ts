@@ -1,61 +1,30 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { verifyAuth, verifyAdminAuth } from "../_shared/auth.ts";
+import { handleCorsPreFlight, successResponse, errorResponse } from "../_shared/response.ts";
+import { AppError, logError } from "../_shared/errors.ts";
+import { validateRequestBody, validateUUID } from "../_shared/validation.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return handleCorsPreFlight();
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false }
-    });
+    // Verify admin authentication
+    const { user, client: userClient, admin: adminClient } = await verifyAuth(req);
+    await verifyAdminAuth(user, adminClient);
 
-    // Verify the requester is an admin
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("No authorization header");
-    }
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    
-    if (authError || !user) {
-      throw new Error("Unauthorized");
-    }
-
-    // Check if requester is admin
-    const { data: roleData } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .single();
-
-    if (!roleData) {
-      throw new Error("Unauthorized - Admin access required");
-    }
-
-    const { userId } = await req.json();
-
-    if (!userId) {
-      throw new Error("Missing required field: userId");
-    }
+    // Parse and validate request body
+    const body = await req.json();
+    const { user_id } = validateRequestBody(body, ["user_id"]);
+    validateUUID(user_id, "user_id");
 
     // Prevent admin from deleting themselves
-    if (userId === user.id) {
-      throw new Error("Cannot delete your own account");
+    if (user_id === user.id) {
+      throw new AppError("Cannot delete your own account", 403);
     }
 
-    console.log("Deleting user:", userId);
+    console.log(`[delete-user] Deleting user=${user_id} by admin=${user.id}`);
 
     // Delete user's test attempts first
     const { error: attemptsError } = await supabaseAdmin

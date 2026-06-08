@@ -1,55 +1,35 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { verifyAuth } from "../_shared/auth.ts";
+import { handleCorsPreFlight, successResponse, errorResponse } from "../_shared/response.ts";
+import { AppError, logError } from "../_shared/errors.ts";
+import { validateRequestBody, validateUUID } from "../_shared/validation.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return handleCorsPreFlight();
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("Missing authorization header");
-    }
+    // Verify user authentication
+    const { user, client: userClient, admin: adminClient } = await verifyAuth(req);
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    // Parse and validate request body
+    const body = await req.json();
+    const { test_id } = validateRequestBody(body, ["test_id"]);
+    validateUUID(test_id, "test_id");
 
-    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    console.log(`[get-test-questions] Fetching for test=${test_id} user=${user.id}`);
 
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
-    if (authError || !user) {
-      throw new Error("Unauthorized");
-    }
-
-    const { test_id } = await req.json();
-    if (!test_id || typeof test_id !== "string") {
-      throw new Error("test_id is required");
-    }
-
-    console.log(`Fetching questions for test ${test_id}`);
-
-    // Check if user is admin
-    const { data: roleData } = await supabaseAdmin
-      .from("user_roles")
+    // Check if user is admin via user_profiles table
+    const { data: profile } = await adminClient
+      .from("user_profiles")
       .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .single();
-    const isAdmin = !!roleData;
+      .eq("id", user.id)
+      .maybeSingle();
+    const isAdmin = profile?.role === "admin";
 
     // Check if user has completed this test
-    const { data: attemptData } = await supabaseAdmin
+    const { data: attemptData, error: attemptError } = await userClient
       .from("test_attempts")
       .select("completed_at")
       .eq("test_id", test_id)
@@ -57,27 +37,36 @@ serve(async (req) => {
       .not("completed_at", "is", null)
       .limit(1)
       .maybeSingle();
+
+    if (attemptError) {
+      console.warn("[get-test-questions] Failed to check attempt status:", attemptError);
+    }
+
     const hasCompleted = !!attemptData?.completed_at;
 
-    // Check if test has show_solutions enabled
-    const { data: testData, error: testError } = await supabaseAdmin
+    // Fetch test metadata
+    const { data: testData, error: testError } = await userClient
       .from("tests")
       .select("test_type, exam_type, show_solutions")
       .eq("id", test_id)
       .single();
 
-    if (testError) {
-      console.error("Failed to fetch test:", testError);
-      throw new Error("Failed to fetch test");
+    if (testError || !testData) {
+      console.error("[get-test-questions] Test not found:", testError);
+      throw new AppError("Test not found", 404);
     }
 
-    const testType = testData?.test_type;
-    const showAnswers = isAdmin || (hasCompleted && testData?.show_solutions !== false);
+    const testType = testData.test_type;
+    const showAnswers = isAdmin || (hasCompleted && testData.show_solutions !== false);
+    
+    console.log(`[get-test-questions] test=${test_id} isAdmin=${isAdmin} hasCompleted=${hasCompleted} showAnswers=${showAnswers}`);
 
     let questions = [];
 
+    let questions: any[] = [];
+
     if (testType === "pdf") {
-      const { data: sectionQuestions, error: sqError } = await supabaseAdmin
+      const { data: sectionQuestions, error: sqError } = await adminClient
         .from("test_section_questions")
         .select(`
           id, question_number, question_text, options, correct_answer,
@@ -88,12 +77,24 @@ serve(async (req) => {
         .eq("test_id", test_id)
         .order("question_number");
 
-      if (sqError) throw new Error("Failed to fetch questions");
+      if (sqError) {
+        console.error("[get-test-questions] Failed to fetch section questions:", sqError);
+        throw new AppError("Failed to fetch questions", 500);
+      }
 
-      const { data: paragraphs } = await supabaseAdmin
+      if (!sectionQuestions || sectionQuestions.length === 0) {
+        console.log("[get-test-questions] No section questions found for test");
+        return successResponse({ questions: [] });
+      }
+
+      const { data: paragraphs, error: paraError } = await adminClient
         .from("question_paragraphs")
         .select("*")
         .eq("test_id", test_id);
+
+      if (paraError) {
+        console.warn("[get-test-questions] Failed to fetch paragraphs:", paraError);
+      }
 
       const paragraphMap: Record<string, any> = {};
       (paragraphs || []).forEach((p: any) => { paragraphMap[p.id] = p; });
@@ -131,7 +132,8 @@ serve(async (req) => {
         return result;
       });
     } else {
-      const { data: testQuestions, error: questionsError } = await supabaseClient
+      // Try to fetch from test_questions (regular test)
+      const { data: testQuestions, error: questionsError } = await userClient
         .from("test_questions")
         .select(`
           order_index, question_id,
@@ -140,9 +142,12 @@ serve(async (req) => {
         .eq("test_id", test_id)
         .order("order_index");
 
-      if (questionsError) throw new Error("Failed to fetch questions");
+      if (questionsError) {
+        console.warn("[get-test-questions] Failed to fetch test_questions:", questionsError);
+      }
 
-      questions = (testQuestions || []).map((tq: any, index: number) => {
+      if (testQuestions && testQuestions.length > 0) {
+        questions = testQuestions.map((tq: any, index: number) => {
         const q = tq.questions;
         const chapter = q?.chapters;
         const course = chapter?.courses;
@@ -162,13 +167,15 @@ serve(async (req) => {
         if (showAnswers) {
           result.correct_answer = q?.correct_answer;
         }
-        return result;
-      });
+          return result;
+        });
+      }
 
+      // Fallback: try test_section_questions if test_questions was empty
       if (questions.length === 0) {
-        console.log("No questions in test_questions, trying test_section_questions...");
+        console.log("[get-test-questions] No questions in test_questions, trying test_section_questions...");
         
-        const { data: sectionQuestions, error: sqError } = await supabaseAdmin
+        const { data: sectionQuestions, error: sqError } = await adminClient
           .from("test_section_questions")
           .select(`
             id, question_number, question_text, options, correct_answer,
@@ -178,15 +185,23 @@ serve(async (req) => {
           .eq("test_id", test_id)
           .order("question_number");
 
-        const { data: paragraphs2 } = await supabaseAdmin
+        if (sqError) {
+          console.warn("[get-test-questions] Failed to fetch fallback section questions:", sqError);
+        }
+
+        const { data: paragraphs2, error: paraError2 } = await adminClient
           .from("question_paragraphs")
           .select("*")
           .eq("test_id", test_id);
 
+        if (paraError2) {
+          console.warn("[get-test-questions] Failed to fetch paragraphs:", paraError2);
+        }
+
         const paragraphMap2: Record<string, any> = {};
         (paragraphs2 || []).forEach((p: any) => { paragraphMap2[p.id] = p; });
 
-        if (!sqError && sectionQuestions && sectionQuestions.length > 0) {
+        if (sectionQuestions && sectionQuestions.length > 0) {
           const sorted = sectionQuestions.sort((a: any, b: any) => {
             const subjectOrderA = a.section?.subject?.order_index ?? 0;
             const subjectOrderB = b.section?.subject?.order_index ?? 0;
@@ -234,17 +249,13 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Returning ${questions.length} questions for test ${test_id}`);
+    console.log(`[get-test-questions] Returning ${questions.length} questions for test=${test_id}`);
 
-    return new Response(
-      JSON.stringify({ questions }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return successResponse({ questions });
   } catch (error: any) {
-    console.error("Error in get-test-questions:", error);
-    return new Response(
-      JSON.stringify({ error: "An error occurred" }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    logError("[get-test-questions]", error);
+    const message = error?.message || "Failed to fetch test questions";
+    const status = error?.status || 400;
+    return errorResponse(message, status);
   }
 });

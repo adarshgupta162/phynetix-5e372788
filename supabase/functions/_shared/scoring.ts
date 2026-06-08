@@ -1,5 +1,8 @@
 export type EvaluatedQuestionStatus = "correct" | "incorrect" | "skipped";
 
+/**
+ * Question types that support multiple correct answers
+ */
 const MULTIPLE_CHOICE_TYPES = new Set([
   "multiple_choice",
   "multiple_correct",
@@ -7,11 +10,18 @@ const MULTIPLE_CHOICE_TYPES = new Set([
   "mcq_multi",
 ]);
 
+/**
+ * Question types that require numeric comparison
+ */
 const INTEGER_TYPES = new Set([
   "integer",
   "numerical",
 ]);
 
+/**
+ * Unwrap answer if stored in object wrapper format
+ * Some systems store answers as { answer: value } instead of just value
+ */
 const unwrapStoredAnswer = (answer: unknown): unknown => {
   if (
     answer &&
@@ -25,15 +35,28 @@ const unwrapStoredAnswer = (answer: unknown): unknown => {
   return answer;
 };
 
+/**
+ * Normalize section type to lowercase for consistent comparison
+ */
 const normalizeSectionType = (sectionType?: string | null) =>
   String(sectionType || "").toLowerCase();
 
+/**
+ * Check if section type is multiple choice (supports multiple answers)
+ */
 const isMultipleChoiceType = (sectionType?: string | null) =>
   MULTIPLE_CHOICE_TYPES.has(normalizeSectionType(sectionType));
 
+/**
+ * Check if section type is integer/numerical
+ */
 const isIntegerType = (sectionType?: string | null) =>
   INTEGER_TYPES.has(normalizeSectionType(sectionType));
 
+/**
+ * Check if answer is empty/skipped
+ * Handles null, undefined, empty strings, and empty arrays
+ */
 export const isAnswerEmpty = (answer: unknown) => {
   const unwrapped = unwrapStoredAnswer(answer);
 
@@ -77,6 +100,9 @@ export const normalizeAnswerCollection = (
   return Array.from(new Set(rawValues.map(normalizeChoiceToken).filter(Boolean)));
 };
 
+/**
+ * Result of evaluating a single question's answer
+ */
 export interface ScoreEvaluation {
   status: EvaluatedQuestionStatus;
   isCorrect: boolean;
@@ -85,6 +111,19 @@ export interface ScoreEvaluation {
   normalizedCorrectAnswers: string[];
 }
 
+/**
+ * Evaluate a single question answer against the correct answer
+ * Handles multiple question types: multiple choice, integer/numerical, single choice
+ * Supports bonus questions and partial marks
+ * 
+ * @param sectionType - Type of question (multiple_choice, integer, etc.)
+ * @param correctAnswer - The correct answer (single or array)
+ * @param userAnswer - The user's provided answer (single or array)
+ * @param marks - Full marks for correct answer (default: 4)
+ * @param negativeMarks - Marks deducted for incorrect answer (default: 1)
+ * @param isBonus - Whether this is a bonus question (always full marks if attempted)
+ * @returns ScoreEvaluation with status, marks, and normalized answers
+ */
 export const evaluateQuestionScore = ({
   sectionType,
   correctAnswer,

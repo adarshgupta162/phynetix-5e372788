@@ -1,140 +1,102 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { verifyAuth, verifyAdminAuth } from "../_shared/auth.ts";
+import { handleCorsPreFlight, successResponse, errorResponse } from "../_shared/response.ts";
+import { AppError, logError } from "../_shared/errors.ts";
+import { validateRequestBody, validateEmail, validatePassword, validateEnum } from "../_shared/validation.ts";
+import type { CreateStaffUserRequest, CreateStaffUserResponse } from "../_shared/types.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return handleCorsPreFlight();
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false }
-    });
+    // Verify admin authentication
+    const { user, client: userClient, admin: adminClient } = await verifyAuth(req);
+    await verifyAdminAuth(user, adminClient);
 
-    // Verify the requester is an admin
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("No authorization header");
-    }
+    // Parse and validate request body
+    const body = await req.json();
+    const { email, password, first_name, last_name, role, phone } = 
+      validateRequestBody(body, ["email", "password", "first_name", "role"]) as CreateStaffUserRequest;
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    
-    if (authError || !user) {
-      throw new Error("Unauthorized");
-    }
+    // Validate inputs
+    validateEmail(email);
+    validatePassword(password);
+    validateEnum(role, "role", ["admin", "staff"]);
 
-    // Check if requester is admin
-    const { data: roleData } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .single();
+    console.log(`[create-staff-user] Creating user=${email} role=${role}`);
 
-    if (!roleData) {
-      throw new Error("Unauthorized - Admin access required");
-    }
-
-    const { email, password, role, fullName, departmentId } = await req.json();
-
-    if (!email || !password || !role) {
-      throw new Error("Missing required fields: email, password, role");
-    }
-
-    // Validate role
-    const validRoles = ['admin', 'head', 'manager', 'teacher', 'data_manager', 'test_manager', 'student'];
-    if (!validRoles.includes(role)) {
-      throw new Error(`Invalid role. Must be one of: ${validRoles.join(', ')}`);
-    }
-
-    // Validate password length
-    if (password.length < 6) {
-      throw new Error("Password must be at least 6 characters");
-    }
-
-    console.log("Creating user:", email, "with role:", role);
-
-    // Create the user
-    const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+    // Create the user in Supabase Auth
+    const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
       email,
       password,
-      email_confirm: true, // Auto-confirm email
+      email_confirm: true,
       user_metadata: {
-        full_name: fullName || email.split('@')[0]
-      }
+        first_name,
+        last_name,
+      },
     });
 
-    if (createError) {
-      throw new Error(`Failed to create user: ${createError.message}`);
+    if (createError || !newUser.user) {
+      console.error("[create-staff-user] Auth user creation failed:", createError);
+      throw new AppError(`Failed to create user: ${createError?.message || "Unknown error"}`, 500);
     }
 
-    if (!newUser.user) {
-      throw new Error("User creation failed");
-    }
+    const newUserId = newUser.user.id;
+    console.log(`[create-staff-user] Created auth user=${newUserId} email=${email}`);
 
-    // Create profile
-    const { error: profileError } = await supabaseAdmin
-      .from("profiles")
+    // Create user profile
+    const { error: profileError } = await adminClient
+      .from("user_profiles")
       .insert({
-        id: newUser.user.id,
-        full_name: fullName || email.split('@')[0]
+        id: newUserId,
+        role: role,
+        first_name,
+        last_name,
+        phone: phone || null,
       });
 
     if (profileError) {
-      console.error("Profile creation error:", profileError);
-    }
-
-    // Assign role
-    const { error: roleError } = await supabaseAdmin
-      .from("user_roles")
-      .insert({
-        user_id: newUser.user.id,
-        role: role,
-        department_id: departmentId || null
-      });
-
-    if (roleError) {
-      console.error("Role assignment error:", roleError);
+      console.error("[create-staff-user] Profile creation failed:", profileError);
       // Rollback - delete the user
-      await supabaseAdmin.auth.admin.deleteUser(newUser.user.id);
-      throw new Error(`Failed to assign role: ${roleError.message}`);
+      await adminClient.auth.admin.deleteUser(newUserId);
+      throw new AppError("Failed to create user profile", 500);
     }
 
-    // Log the action
-    await supabaseAdmin
+    console.log(`[create-staff-user] Created profile for user=${newUserId}`);
+
+    // Log audit trail
+    const { error: auditError } = await adminClient
       .from("audit_logs")
       .insert({
         user_id: user.id,
-        action: 'create_user',
-        entity_type: 'user',
-        entity_id: newUser.user.id,
-        new_value: { email, role, departmentId }
+        action: "create_user",
+        entity_type: "user",
+        entity_id: newUserId,
+        new_value: { email, role, first_name, last_name, phone },
       });
 
-    console.log("User created successfully:", newUser.user.id);
+    if (auditError) {
+      console.warn("[create-staff-user] Failed to create audit log:", auditError);
+    }
 
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        userId: newUser.user.id,
-        message: `User ${email} created with role ${role}`
-      }),
-      { headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+    console.log(`[create-staff-user] Successfully created user=${newUserId} role=${role}`);
+
+    const response: CreateStaffUserResponse = {
+      user_id: newUserId,
+      email,
+      first_name,
+      last_name,
+      role,
+      created_at: new Date().toISOString(),
+    };
+
+    return successResponse(response, 201);
   } catch (error: any) {
-    console.error("Error in create-staff-user:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+    logError("[create-staff-user]", error);
+    const message = error?.message || "Failed to create user";
+    const status = error?.status || 400;
+    return errorResponse(message, status);
   }
 });

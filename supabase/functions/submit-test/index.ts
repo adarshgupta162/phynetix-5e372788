@@ -1,85 +1,40 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { verifyAuth } from "../_shared/auth.ts";
 import { evaluateQuestionScore } from "../_shared/scoring.ts";
+import { handleCorsPreFlight, successResponse, errorResponse } from "../_shared/response.ts";
+import { AppError, logError } from "../_shared/errors.ts";
+import { validateRequestBody, validateUUID } from "../_shared/validation.ts";
+import type { SubmitTestRequest, SubmitTestResponse, QuestionResult, SubjectScore } from "../_shared/types.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-type SubjectScore = {
-  correct: number;
-  incorrect: number;
-  skipped: number;
-  total: number;
-  marks: number;
-  totalMarks: number;
-};
-
-type QuestionResult = {
-  question_number?: number;
-  question_text?: string | null;
-  options?: unknown;
-  image_url?: string | null;
-
-  correct_answer: unknown;
-  user_answer: unknown;
-  is_correct: boolean;
-  is_bonus?: boolean;
-
-  marks_obtained: number;
-  marks: number;
-  negative_marks: number;
-
-  subject: string;
-  section_type?: string;
-  chapter?: string;
-};
-
-// Helper to convert user answer index (0, 1, 2, 3) to letter (A, B, C, D)
-const indexToLetter = (index: any): string => {
-  const num = parseInt(String(index));
-  if (!isNaN(num) && num >= 0 && num <= 25) {
-    return String.fromCharCode(65 + num); // 0 -> A, 1 -> B, etc.
-  }
-  return String(index).toUpperCase();
-};
+// Types are imported from _shared/types.ts
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return handleCorsPreFlight();
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("Missing authorization header");
+    // Verify user authentication
+    const { user, client: userClient, admin: adminClient } = await verifyAuth(req);
+
+    // Parse and validate request body
+    const body = await req.json();
+    const { attempt_id, answers, time_taken_seconds, force_submit } = 
+      validateRequestBody(body, ["attempt_id", "answers", "time_taken_seconds"]) as SubmitTestRequest & { force_submit?: boolean };
+    
+    validateUUID(attempt_id, "attempt_id");
+
+    if (!answers || typeof answers !== "object") {
+      throw new AppError("Answers must be an object", 400, "VALIDATION_ERROR");
     }
 
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      { global: { headers: { Authorization: authHeader } } },
-    );
-
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-    );
-
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
-    if (authError || !user) {
-      throw new Error("Unauthorized");
-    }
-
-    const { attempt_id, answers, time_taken_seconds, force_submit } = await req.json();
-    if (!attempt_id) {
-      throw new Error("attempt_id is required");
+    if (typeof time_taken_seconds !== "number" || time_taken_seconds < 0) {
+      throw new AppError("time_taken_seconds must be a non-negative number", 400, "VALIDATION_ERROR");
     }
 
     console.log(`[submit-test] Submitting attempt=${attempt_id} user=${user.id}`);
 
-    const { data: attempt, error: attemptError } = await supabaseClient
+    const { data: attempt, error: attemptError } = await userClient
       .from("test_attempts")
       .select("id, test_id, user_id, completed_at, submit_disabled, started_at, result_release_delay_minutes")
       .eq("id", attempt_id)
@@ -88,23 +43,31 @@ serve(async (req) => {
 
     if (attemptError || !attempt) {
       console.error("[submit-test] Attempt not found:", attemptError);
-      throw new Error("Test attempt not found");
+      throw new AppError("Test attempt not found", 404);
     }
 
     if (attempt.completed_at) {
-      console.log("[submit-test] Attempt already completed");
-      throw new Error("Test already submitted");
+      console.warn("[submit-test] Attempt already completed:", attempt_id);
+      throw new AppError("Test already submitted", 403);
     }
 
     if (attempt.submit_disabled && !force_submit) {
-      throw new Error("Submission is disabled for this attempt. Please contact the administrator.");
+      throw new AppError(
+        "Submission is disabled for this attempt. Please contact the administrator.",
+        403
+      );
     }
 
-    const { data: test } = await supabaseAdmin
+    const { data: test, error: testError } = await adminClient
       .from("tests")
       .select("test_type, exam_type")
       .eq("id", attempt.test_id)
       .single();
+
+    if (testError || !test) {
+      console.error("[submit-test] Test not found:", testError);
+      throw new AppError("Test not found", 404);
+    }
 
     let score = 0;
     let totalMarks = 0;
@@ -135,7 +98,7 @@ serve(async (req) => {
     const gradeSectionBased = async () => {
       console.log("[submit-test] Grading section-based questions (test_section_questions)");
 
-      const { data: sectionQuestions, error: sqError } = await supabaseAdmin
+      const { data: sectionQuestions, error: sqError } = await adminClient
         .from("test_section_questions")
         .select(`
           id,
@@ -158,7 +121,7 @@ serve(async (req) => {
 
       if (sqError) {
         console.error("[submit-test] Failed to fetch section questions:", sqError);
-        throw new Error("Failed to calculate score");
+        throw new AppError("Failed to calculate score", 500);
       }
 
       for (const q of sectionQuestions || []) {
@@ -224,7 +187,7 @@ serve(async (req) => {
     const gradeRegular = async () => {
       console.log("[submit-test] Grading regular test_questions -> questions");
 
-      const { data: testQuestions, error: questionsError } = await supabaseAdmin
+      const { data: testQuestions, error: questionsError } = await adminClient
         .from("test_questions")
         .select(
           `order_index, questions(id, question_text, options, image_url, question_type, correct_answer, marks, negative_marks, chapters(name, courses(name)))`,
@@ -234,7 +197,7 @@ serve(async (req) => {
 
       if (questionsError) {
         console.error("[submit-test] Failed to fetch questions:", questionsError);
-        throw new Error("Failed to calculate score");
+        throw new AppError("Failed to calculate score", 500);
       }
 
       // If this test was built using the section-based structure, test_questions will be empty.
@@ -310,20 +273,28 @@ serve(async (req) => {
       await gradeRegular();
     }
 
-    const { data: allAttempts } = await supabaseAdmin
+    // Calculate rank and percentile based on all completed attempts
+    const { data: allAttempts, error: allAttemptsError } = await adminClient
       .from("test_attempts")
       .select("id, score")
       .eq("test_id", attempt.test_id)
       .not("completed_at", "is", null)
       .order("score", { ascending: false });
 
+    if (allAttemptsError) {
+      console.error("[submit-test] Failed to fetch all attempts:", allAttemptsError);
+      throw new AppError("Failed to calculate ranking", 500);
+    }
+
     let rank = 1;
     let percentile = 100;
 
     if (allAttempts && allAttempts.length > 0) {
+      // Include current score in ranking
       const scoresWithCurrent = [...allAttempts.map((a) => a.score ?? 0), score].sort((a, b) => b - a);
       rank = scoresWithCurrent.indexOf(score) + 1;
-
+      
+      // Calculate percentile: (scores below current / total scores) * 100
       const scoresBelow = scoresWithCurrent.filter((s) => s < score).length;
       percentile = Math.round((scoresBelow / scoresWithCurrent.length) * 100 * 10) / 10;
     }
@@ -333,7 +304,8 @@ serve(async (req) => {
       ? new Date(new Date(attempt.started_at).getTime() + delayMinutes * 60 * 1000).toISOString()
       : null;
 
-    const { error: updateError } = await supabaseClient
+    // Update current attempt with score and ranking
+    const { error: updateError } = await userClient
       .from("test_attempts")
       .update({
         answers,
@@ -350,46 +322,52 @@ serve(async (req) => {
 
     if (updateError) {
       console.error("[submit-test] Failed to update attempt:", updateError);
-      throw new Error("Failed to save results");
+      throw new AppError("Failed to save results", 500);
     }
 
+    // Recalculate ranks and percentiles for all attempts if this isn't the first submission
     if (allAttempts && allAttempts.length > 0) {
+      console.log("[submit-test] Recalculating ranks for", allAttempts.length + 1, "attempts");
+      
       const updatedAttempts = [...allAttempts, { id: attempt_id, score }]
         .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
+      // Use batch update to avoid race conditions
       for (let i = 0; i < updatedAttempts.length; i++) {
         const newRank = i + 1;
         const newPercentile = Math.round(((updatedAttempts.length - newRank) / updatedAttempts.length) * 100 * 10) / 10;
 
-        await supabaseAdmin
+        const { error: rankError } = await adminClient
           .from("test_attempts")
           .update({ rank: newRank, percentile: newPercentile })
           .eq("id", updatedAttempts[i].id);
+
+        if (rankError) {
+          console.warn("[submit-test] Failed to update rank for attempt", updatedAttempts[i].id, rankError);
+        }
       }
     }
 
     console.log(`[submit-test] Completed attempt=${attempt_id} score=${score}/${totalMarks} rank=${rank} percentile=${percentile}`);
 
-    return new Response(
-      JSON.stringify({
-        score,
-        total_marks: totalMarks,
-        correct,
-        incorrect,
-        skipped,
-        rank,
-        percentile,
-        question_results: questionResults,
-        subject_scores: subjectScores,
-        time_taken_seconds,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    const response: SubmitTestResponse = {
+      score,
+      total_marks: totalMarks,
+      correct,
+      incorrect,
+      skipped,
+      rank,
+      percentile,
+      question_results: questionResults as Record<string, QuestionResult>,
+      subject_scores: subjectScores as Record<string, SubjectScore>,
+      time_taken_seconds,
+    };
+
+    return successResponse(response);
   } catch (error: any) {
-    console.error("[submit-test] Error:", error);
-    return new Response(
-      JSON.stringify({ error: error?.message || "Unknown error" }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    logError("[submit-test]", error);
+    const message = error?.message || "Unknown error";
+    const status = error?.status || 400;
+    return errorResponse(message, status);
   }
 });
