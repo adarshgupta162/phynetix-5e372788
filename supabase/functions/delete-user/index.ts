@@ -26,54 +26,47 @@ serve(async (req) => {
 
     console.log(`[delete-user] Deleting user=${user_id} by admin=${user.id}`);
 
-    // Delete user's test attempts first
-    const { error: attemptsError } = await supabaseAdmin
-      .from("test_attempts")
+    // Delete user's profile (cascades to related records due to ON DELETE CASCADE)
+    const { error: profileError } = await adminClient
+      .from("user_profiles")
       .delete()
-      .eq("user_id", userId);
-
-    if (attemptsError) {
-      console.error("Error deleting test attempts:", attemptsError);
-    }
-
-    // Delete user's roles
-    const { error: rolesError } = await supabaseAdmin
-      .from("user_roles")
-      .delete()
-      .eq("user_id", userId);
-
-    if (rolesError) {
-      console.error("Error deleting user roles:", rolesError);
-    }
-
-    // Delete user's profile
-    const { error: profileError } = await supabaseAdmin
-      .from("profiles")
-      .delete()
-      .eq("id", userId);
+      .eq("id", user_id);
 
     if (profileError) {
-      console.error("Error deleting profile:", profileError);
+      console.error("[delete-user] Failed to delete user profile:", profileError);
+      throw new AppError("Failed to delete user profile", 500);
     }
 
-    // Delete the auth user
-    const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+    // Delete the auth user (cascades to test_attempts and proctoring records)
+    const { error: deleteError } = await adminClient.auth.admin.deleteUser(user_id);
 
     if (deleteError) {
-      throw new Error(`Failed to delete user: ${deleteError.message}`);
+      console.error("[delete-user] Failed to delete auth user:", deleteError);
+      throw new AppError(`Failed to delete auth user: ${deleteError.message}`, 500);
     }
 
-    console.log("User deleted successfully:", userId);
+    // Log audit trail
+    const { error: auditError } = await adminClient
+      .from("audit_logs")
+      .insert({
+        user_id: user.id,
+        action: "delete_user",
+        entity_type: "user",
+        entity_id: user_id,
+        new_value: { deleted_at: new Date().toISOString() },
+      });
 
-    return new Response(
-      JSON.stringify({ success: true }),
-      { headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+    if (auditError) {
+      console.warn("[delete-user] Failed to create audit log:", auditError);
+    }
+
+    console.log(`[delete-user] Successfully deleted user=${user_id}`);
+
+    return successResponse({ user_id, deleted_at: new Date().toISOString() });
   } catch (error: any) {
-    console.error("Error in delete-user:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+    logError("[delete-user]", error);
+    const message = error?.message || "Failed to delete user";
+    const status = error?.status || 400;
+    return errorResponse(message, status);
   }
 });

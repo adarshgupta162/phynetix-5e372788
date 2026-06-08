@@ -1,78 +1,57 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { Resend } from "https://esm.sh/resend@2.0.0";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { verifyAuth, verifyAdminAuth } from "../_shared/auth.ts";
+import { handleCorsPreFlight, successResponse, errorResponse } from "../_shared/response.ts";
+import { AppError, logError } from "../_shared/errors.ts";
+import { validateRequestBody, validateEmail } from "../_shared/validation.ts";
+import type { SendNotificationRequest } from "../_shared/types.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return handleCorsPreFlight();
   }
 
   try {
+    // Verify admin authentication
+    const { user, admin: adminClient } = await verifyAuth(req);
+    await verifyAdminAuth(user, adminClient);
+
+    // Check Resend API key
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
     if (!resendApiKey) {
-      throw new Error("RESEND_API_KEY not configured");
+      throw new AppError("RESEND_API_KEY not configured", 500);
     }
 
     const resend = new Resend(resendApiKey);
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { autoRefreshToken: false, persistSession: false }
-    });
 
-    // Verify the requester is an admin
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("No authorization header");
-    }
+    // Parse and validate request
+    const body = await req.json();
+    const { user_email, subject, message, user_name } = 
+      validateRequestBody(body, ["user_email", "subject", "message"]) as SendNotificationRequest;
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
-    
-    if (authError || !user) {
-      throw new Error("Unauthorized");
-    }
+    validateEmail(user_email);
 
-    // Check if requester is admin
-    const { data: roleData } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .single();
+    console.log(`[send-notification] Sending email to=${user_email} subject="${subject}"`);
 
-    if (!roleData) {
-      throw new Error("Unauthorized - Admin access required");
-    }
-
-    const { userEmail, subject, message, userName } = await req.json();
-
-    if (!userEmail || !subject || !message) {
-      throw new Error("Missing required fields: userEmail, subject, message");
-    }
-
-    function escapeHtml(unsafe: string): string {
-      return unsafe
+    // Sanitize user input
+    const escapeHtml = (text: string): string => {
+      return text
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
-    }
+    };
 
-    const safeUserName = escapeHtml(userName || 'Student');
+    const safeUserName = escapeHtml(user_name || "Student");
     const safeMessage = escapeHtml(message);
+    const safeSubject = escapeHtml(subject);
 
+    // Send email via Resend
     const emailResponse = await resend.emails.send({
       from: "PhyNetix <onboarding@resend.dev>",
-      to: [userEmail],
-      subject: subject,
+      to: [user_email],
+      subject: safeSubject,
       html: `
         <!DOCTYPE html>
         <html>
@@ -127,17 +106,37 @@ serve(async (req) => {
       `,
     });
 
-    console.log("Email sent successfully:", emailResponse);
+    if (emailResponse.error) {
+      console.error("[send-notification] Resend API error:", emailResponse.error);
+      throw new AppError(`Failed to send email: ${emailResponse.error.message}`, 500);
+    }
 
-    return new Response(
-      JSON.stringify({ success: true, emailId: emailResponse.data?.id }),
-      { headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+    console.log(`[send-notification] Email sent successfully to=${user_email} id=${emailResponse.data?.id}`);
+
+    // Log audit trail
+    const { error: auditError } = await adminClient
+      .from("audit_logs")
+      .insert({
+        user_id: user.id,
+        action: "send_notification",
+        entity_type: "notification",
+        new_value: { recipient_email: user_email, subject: subject, email_id: emailResponse.data?.id },
+      });
+
+    if (auditError) {
+      console.warn("[send-notification] Failed to create audit log:", auditError);
+    }
+
+    return successResponse({
+      success: true,
+      email_id: emailResponse.data?.id,
+      recipient: user_email,
+      subject: subject,
+    });
   } catch (error: any) {
-    console.error("Error in send-notification:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+    logError("[send-notification]", error);
+    const message = error?.message || "Failed to send notification";
+    const status = error?.status || 400;
+    return errorResponse(message, status);
   }
 });
