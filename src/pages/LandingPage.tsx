@@ -301,7 +301,7 @@ export default function LandingPage() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <Link to="/auth">
                 <Button size="lg" className="gap-2 px-8 text-base">
-                  Get Early Access
+                  Get Started
                   <ArrowRight className="w-4 h-4" />
                 </Button>
               </Link>
@@ -588,7 +588,7 @@ export default function LandingPage() {
                 Be among our first students
               </h2>
               <p className="text-muted-foreground text-sm leading-relaxed mb-8 max-w-md mx-auto">
-                We're onboarding our founding cohort now. Get early access, help shape the
+                We're onboarding our founding cohort now. Get Started, help shape the
                 platform, and prepare for JEE with a tool built by people who've been exactly
                 where you are. Free for the founding batch.
               </p>
